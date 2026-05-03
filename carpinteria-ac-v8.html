@@ -1,0 +1,2588 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carpintería de Aluminio AC</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ══════════════════════════════════════════
+//  CONFIGURACIÓN FIREBASE — rellena estos datos
+//  con los de tu proyecto en Firebase Console
+// ══════════════════════════════════════════
+// ── Credenciales cargadas desde localStorage o hardcodeadas ──
+function getStoredFbConfig() {
+  try {
+    const c = JSON.parse(localStorage.getItem('ac_fbconfig') || '{}');
+    return c;
+  } catch(e) { return {}; }
+}
+const _saved = getStoredFbConfig();
+const FIREBASE_CONFIG = {
+  apiKey:            _saved.apiKey            || "AIzaSyBaqSIXn_C6g-BAhnMYW17Ucsi4qBcZIJ8",
+  authDomain:        _saved.authDomain        || "carpinteria-ac.firebaseapp.com",
+  projectId:         _saved.projectId         || "carpinteria-ac",
+  storageBucket:     _saved.storageBucket     || "carpinteria-ac.firebasestorage.app",
+  messagingSenderId: _saved.messagingSenderId || "639882097274",
+  appId:             _saved.appId             || "1:639882097274:web:71c5b7b0eb662392ad81c3",
+};
+
+let db = null;
+let fbReady = false;
+
+function tryInitFirebase() {
+  if (FIREBASE_CONFIG.projectId === "PENDIENTE") {
+    console.warn("Firebase no configurado. Usando solo localStorage.");
+    window.fbReady = false;
+    document.getElementById('sync-status').textContent = '⚠️ Sin sincronización — configura Firebase';
+    document.getElementById('sync-status').style.background = '#fff3e0';
+    document.getElementById('sync-status').style.color = '#d47000';
+    return;
+  }
+  try {
+    const app = initializeApp(FIREBASE_CONFIG);
+    db = getFirestore(app);
+    window.db = db;
+    window.fbReady = true;
+    fbReady = true;
+    document.getElementById('sync-status').textContent = '☁️ Sincronización activa';
+    document.getElementById('sync-status').style.background = '#e6f7f1';
+    document.getElementById('sync-status').style.color = '#0d8a5c';
+    console.log("Firebase OK");
+    // Suscribirse a cambios en tiempo real
+    setupRealtimeListeners();
+  } catch(e) {
+    console.error("Firebase error:", e);
+    document.getElementById('sync-status').textContent = '❌ Error Firebase: ' + e.message;
+  }
+}
+
+// ══ FUNCIONES CLOUD ══
+async function cloudSave(coleccion, docId, data) {
+  if (!fbReady || !db) return false;
+  try {
+    await setDoc(doc(db, "carpinteria_ac", coleccion + "_" + docId), { data: JSON.stringify(data), ts: Date.now() });
+    return true;
+  } catch(e) { console.warn("cloudSave error", e); return false; }
+}
+
+async function cloudSaveAll() {
+  if (!fbReady || !db) return;
+  try {
+    await setDoc(doc(db, "carpinteria_ac", "perfiles"),    { data: JSON.stringify(window.perfilesTarifa||[]),  ts: Date.now() });
+    await setDoc(doc(db, "carpinteria_ac", "historial"),   { data: JSON.stringify(window.historial||[]),        ts: Date.now() });
+    await setDoc(doc(db, "carpinteria_ac", "visita"),      { data: JSON.stringify(window.visitaPartidas||[]),   ts: Date.now() });
+    await setDoc(doc(db, "carpinteria_ac", "corte"),       { data: JSON.stringify(window.cortePiezas||[]),      ts: Date.now() });
+    await setDoc(doc(db, "carpinteria_ac", "pdfPartidas"), { data: JSON.stringify(window.pdfPartidas||[]),      ts: Date.now() });
+    await setDoc(doc(db, "carpinteria_ac", "counter"),     { data: String(window.presCounter||0),               ts: Date.now() });
+    await setDoc(doc(db, "carpinteria_ac", "empresa"),     { data: JSON.stringify(window.empresaData||{}),      ts: Date.now() });
+    showSyncOk();
+  } catch(e) { console.warn("cloudSaveAll error", e); }
+}
+
+async function cloudLoad() {
+  if (!fbReady || !db) return false;
+  try {
+    const keys = ["perfiles","historial","visita","corte","pdfPartidas","counter","empresa"];
+    const results = await Promise.all(keys.map(k => getDoc(doc(db, "carpinteria_ac", k))));
+    const map = {};
+    keys.forEach((k,i) => { if(results[i].exists()) map[k] = results[i].data().data; });
+    if(map.perfiles)    try{ window.perfilesTarifa  = JSON.parse(map.perfiles); }catch(e){}
+    if(map.historial)   try{ window.historial        = JSON.parse(map.historial); }catch(e){}
+    if(map.visita)      try{ window.visitaPartidas   = JSON.parse(map.visita); }catch(e){}
+    if(map.corte)       try{ window.cortePiezas      = JSON.parse(map.corte); }catch(e){}
+    if(map.pdfPartidas) try{ window.pdfPartidas      = JSON.parse(map.pdfPartidas); }catch(e){}
+    if(map.counter)     window.presCounter = parseInt(map.counter)||0;
+    if(map.empresa)     try{ window.empresaData = JSON.parse(map.empresa); }catch(e){}
+    return true;
+  } catch(e) { console.warn("cloudLoad error", e); return false; }
+}
+
+function setupRealtimeListeners() {
+  if (!fbReady || !db) return;
+  // Escuchar cambios en historial y perfiles en tiempo real
+  onSnapshot(doc(db, "carpinteria_ac", "historial"), (snap) => {
+    if (snap.exists() && snap.data().ts > (window._lastHistSave||0)) {
+      try {
+        const newData = JSON.parse(snap.data().data);
+        if(JSON.stringify(newData) !== JSON.stringify(window.historial)) {
+          window.historial = newData;
+          if(typeof window.renderHistorial === 'function') window.renderHistorial();
+          if(typeof window.updateDash === 'function') window.updateDash();
+          showSyncBadge("🔄 Historial sincronizado");
+        }
+      } catch(e) {}
+    }
+  });
+  onSnapshot(doc(db, "carpinteria_ac", "perfiles"), (snap) => {
+    if (snap.exists() && snap.data().ts > (window._lastPerfSave||0)) {
+      try {
+        const newData = JSON.parse(snap.data().data);
+        if(JSON.stringify(newData) !== JSON.stringify(window.perfilesTarifa)) {
+          window.perfilesTarifa = newData;
+          if(typeof window.renderPerfilesTarifa === 'function') window.renderPerfilesTarifa();
+          showSyncBadge("🔄 Perfiles sincronizados");
+        }
+      } catch(e) {}
+    }
+  });
+}
+
+function showSyncOk() {
+  showSyncBadge("☁️ Guardado en la nube");
+}
+function showSyncBadge(msg) {
+  const b = document.getElementById('sync-badge');
+  if(b) { b.textContent = msg; b.style.opacity='1'; setTimeout(()=>b.style.opacity='0',2000); }
+}
+
+// Exponer funciones globalmente
+window.cloudSaveAll = cloudSaveAll;
+window.cloudLoad    = cloudLoad;
+window.fbReady      = fbReady;
+
+// Iniciar cuando el DOM esté listo
+if(document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', tryInitFirebase);
+} else {
+  setTimeout(tryInitFirebase, 100);
+}
+</script>
+<style>
+:root {
+  --bg:      #f0f4f8;
+  --bg2:     #ffffff;
+  --bg3:     #e8edf3;
+  --bg4:     #d8e0ea;
+  --border:  rgba(0,0,0,0.08);
+  --border2: rgba(0,0,0,0.13);
+  --accent:  #1a5fa8;
+  --accent2: #1e70c5;
+  --accent3: #e8f1fb;
+  --green:   #0d8a5c;
+  --green2:  #10a870;
+  --greenbg: #e6f7f1;
+  --red:     #c93030;
+  --red2:    #e04444;
+  --redbg:   #fdeaea;
+  --orange:  #d47000;
+  --orangebg:#fff3e0;
+  --text:    #1a202c;
+  --text2:   #4a5568;
+  --text3:   #8896a7;
+  --r:       10px;
+  --r-sm:    7px;
+  --shadow:  0 2px 12px rgba(0,0,0,0.08);
+  --shadow2: 0 4px 24px rgba(0,0,0,0.12);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+/* HEADER */
+header{
+  background:var(--accent);
+  padding:0 28px;height:58px;display:flex;align-items:center;
+  justify-content:space-between;position:sticky;top:0;z-index:200;
+  box-shadow:0 2px 16px rgba(26,95,168,0.3);
+}
+.logo{font-family:'Playfair Display',serif;font-size:22px;font-weight:800;color:#fff;letter-spacing:0.5px;display:flex;align-items:center;gap:10px}
+.logo-icon{background:rgba(255,255,255,0.2);border-radius:8px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.logo-sub{font-family:'DM Sans',sans-serif;font-size:11px;font-weight:400;color:rgba(255,255,255,0.7);letter-spacing:2px;text-transform:uppercase;margin-top:1px}
+.hdate{font-family:'DM Mono',monospace;font-size:11px;color:rgba(255,255,255,0.7);letter-spacing:1px}
+
+/* NAV */
+nav{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;overflow-x:auto;padding:0 16px;gap:0;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+.nb{background:none;border:none;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;padding:14px 16px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;transition:.2s;display:flex;align-items:center;gap:6px}
+.nb:hover{color:var(--accent);background:var(--accent3)}
+.nb.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+
+/* LAYOUT */
+main{padding:24px;max-width:1340px;margin:0 auto}
+.page{display:none}.page.active{display:block}
+.pg-title{font-family:'Playfair Display',serif;font-size:34px;font-weight:800;color:var(--text);margin-bottom:4px;letter-spacing:-0.5px}
+.pg-sub{font-size:13px;color:var(--text2);margin-bottom:24px}
+
+/* CARDS */
+.card{background:var(--bg2);border-radius:var(--r);border:1px solid var(--border);padding:22px;box-shadow:var(--shadow)}
+.card+.card{margin-top:16px}
+.ct{font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;letter-spacing:0.5px;color:var(--accent);margin-bottom:16px;display:flex;align-items:center;gap:8px;text-transform:uppercase}
+
+/* GRID */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media(max-width:900px){.g2,.g3,.g4{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+/* FORMS */
+label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.7px;display:block;margin-bottom:5px}
+input,select,textarea{width:100%;background:var(--bg);border:1.5px solid var(--border2);border-radius:var(--r-sm);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;padding:9px 12px;outline:none;transition:.2s}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(26,95,168,0.1)}
+textarea{resize:vertical;min-height:70px}
+.fg{margin-bottom:14px}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:10px 20px;border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.18s}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--accent2);box-shadow:var(--shadow)}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1.5px solid var(--border2)}.btn-ghost:hover{background:var(--bg4)}
+.btn-green{background:var(--green);color:#fff}.btn-green:hover{background:var(--green2)}
+.btn-red{background:var(--red);color:#fff}
+.btn-orange{background:var(--orange);color:#fff}
+.btn-sm{padding:5px 11px;font-size:11px}
+.btn-block{width:100%;justify-content:center}
+
+/* TABLE */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:9px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text3);border-bottom:2px solid var(--border);background:var(--bg)}
+td{padding:10px 12px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--accent3)}
+
+/* BADGES */
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.bg{background:var(--greenbg);color:var(--green2)}
+.bo{background:var(--orangebg);color:var(--orange)}
+.bb{background:#e8f1fb;color:var(--accent)}
+.br{background:var(--redbg);color:var(--red2)}
+.bp{background:#f0ebff;color:#6d28d9}
+
+/* STATS */
+.stat{background:var(--bg2);border-radius:var(--r);padding:20px;border:1px solid var(--border);box-shadow:var(--shadow);position:relative;overflow:hidden}
+.stat::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px}
+.stat.blue::after{background:var(--accent)}
+.stat.green::after{background:var(--green)}
+.stat.orange::after{background:var(--orange)}
+.stat.red::after{background:var(--red)}
+.stat-n{font-family:'Playfair Display',serif;font-size:34px;font-weight:800;color:var(--text);line-height:1;margin-bottom:4px}
+.stat.blue .stat-n{color:var(--accent)}
+.stat.green .stat-n{color:var(--green)}
+.stat.orange .stat-n{color:var(--orange)}
+.stat.red .stat-n{color:var(--red)}
+.stat-l{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
+
+/* SEP */
+.sep{height:1px;background:var(--border);margin:16px 0}
+.flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.fb{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.mt{margin-top:16px}
+.ts{color:var(--text2);font-size:13px}
+
+/* TABS */
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0}
+.tab{background:none;border:none;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;transition:.2s;margin-bottom:-2px}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.tab-content{display:none}.tab-content.active{display:block}
+
+/* PRICE BOX */
+.price-box{background:linear-gradient(135deg,var(--accent3),#f5f9ff);border:2px solid rgba(26,95,168,0.2);border-radius:var(--r);padding:24px;text-align:center}
+.price-big{font-family:'Playfair Display',serif;font-size:52px;font-weight:800;color:var(--accent);line-height:1}
+.price-sub{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px}
+
+/* COST ROW */
+.cost-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px}
+.cost-row:last-child{border-bottom:none}
+
+/* DONUT */
+.donut-wrap{position:relative;width:140px;height:140px;flex-shrink:0}
+.donut-wrap svg{transform:rotate(-90deg)}
+.donut-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center}
+.donut-pct{font-family:'Playfair Display',serif;font-size:26px;font-weight:800;color:var(--green)}
+.donut-sub{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
+
+/* BAR */
+.bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.bar-label{font-size:12px;color:var(--text2);width:130px;flex-shrink:0;text-align:right}
+.bar-track{flex:1;background:var(--bg3);border-radius:4px;height:18px;overflow:hidden;position:relative}
+.bar-fill{height:100%;border-radius:4px;display:flex;align-items:center;padding-left:8px;font-size:11px;font-weight:700;color:#fff;transition:width 1s ease;white-space:nowrap}
+.bar-val{font-size:12px;color:var(--text2);width:60px;flex-shrink:0;font-family:'DM Mono',monospace}
+
+/* PROD CARD */
+.prod-card{background:var(--bg);border-radius:var(--r);border:2px solid transparent;cursor:pointer;transition:.2s;overflow:hidden}
+.prod-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow2)}
+.prod-card.sel{border-color:var(--accent);background:var(--accent3)}
+.prod-img{width:100%;height:90px;display:flex;align-items:center;justify-content:center;font-size:44px;background:var(--bg3)}
+.prod-body{padding:10px}
+.prod-name{font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;margin-bottom:2px}
+.prod-price{font-family:'Playfair Display',serif;font-size:17px;color:var(--accent)}
+
+/* NUM WRAP */
+.num-input-wrap{display:flex;align-items:center;gap:0;border:1.5px solid var(--border2);border-radius:var(--r-sm);overflow:hidden;background:var(--bg)}
+.num-btn{background:var(--bg3);border:none;color:var(--text);width:32px;height:36px;cursor:pointer;font-size:16px;transition:.15s;flex-shrink:0;font-weight:700}
+.num-btn:hover{background:var(--accent3);color:var(--accent)}
+.num-input-wrap input{border:none;background:transparent;text-align:center;width:60px;color:var(--text);font-size:14px;padding:8px 4px}
+
+/* PERFIL ROW */
+.perfil-row{background:var(--bg);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;border-left:3px solid var(--accent);display:flex;justify-content:space-between;align-items:center;gap:12px}
+.perfil-row:hover{background:var(--accent3)}
+
+/* INFO BOX */
+.info-box{background:var(--accent3);border:1px solid rgba(26,95,168,0.2);border-radius:var(--r-sm);padding:14px;font-size:13px;color:var(--accent);margin-bottom:14px}
+.warn-box{background:var(--orangebg);border:1px solid rgba(212,112,0,0.2);border-radius:var(--r-sm);padding:14px;font-size:13px;color:var(--orange);margin-bottom:14px}
+.success-box{background:var(--greenbg);border:1px solid rgba(13,138,92,0.2);border-radius:var(--r-sm);padding:14px;font-size:13px;color:var(--green)}
+
+/* HISTORIAL */
+.hist-card{background:var(--bg2);border-radius:var(--r);border:1px solid var(--border);padding:16px 20px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;box-shadow:var(--shadow);transition:.2s}
+.hist-card:hover{border-color:var(--accent);box-shadow:var(--shadow2)}
+.hist-ref{font-family:'DM Mono',monospace;font-size:12px;color:var(--accent);font-weight:500}
+.hist-cli{font-size:15px;font-weight:600}
+.hist-total{font-family:'Playfair Display',serif;font-size:22px;color:var(--green)}
+.hist-estado.aceptado{background:var(--greenbg);color:var(--green)}
+.hist-estado.pendiente{background:var(--orangebg);color:var(--orange)}
+.hist-estado.rechazado{background:var(--redbg);color:var(--red)}
+.hist-estado{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+
+/* UPLOAD */
+.upload-zone{border:2px dashed var(--border2);border-radius:var(--r);padding:36px;text-align:center;cursor:pointer;transition:.2s;background:var(--bg)}
+.upload-zone:hover{border-color:var(--accent);background:var(--accent3)}
+.upload-zone input{display:none}
+
+/* ALUM CALC */
+.perfil-linea{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg);border-radius:var(--r-sm);margin-bottom:6px;font-size:13px}
+.perfil-linea strong{font-family:'DM Mono',monospace;font-size:12px;color:var(--accent)}
+
+/* PDF */
+.pdf-wrap{background:#fff;color:#111;border-radius:var(--r);padding:40px;font-family:'DM Sans',sans-serif;box-shadow:0 8px 40px rgba(0,0,0,.15)}
+.pdf-co{font-family:'Playfair Display',serif;font-size:30px;font-weight:800;color:#1a5fa8}
+.pdf-tbl{width:100%;border-collapse:collapse;margin:20px 0}
+.pdf-tbl th{background:#1a5fa8;color:#fff;padding:9px 12px;font-size:11px;text-align:left;text-transform:uppercase;letter-spacing:.5px}
+.pdf-tbl td{padding:9px 12px;font-size:12px;border-bottom:1px solid #f0f0f0}
+.pdf-tbl tr:last-child td{border-bottom:none}
+.pdf-total{text-align:right;margin-top:10px}
+.pdf-tr{display:flex;justify-content:flex-end;gap:24px;font-size:13px;padding:4px 0}
+.pdf-tr.fin{font-size:17px;font-weight:800;color:#1a5fa8;border-top:2px solid #1a5fa8;padding-top:10px;margin-top:6px}
+
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:10px}
+.hidden{display:none!important}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.page.active{animation:fadein .25s ease}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🪟</div>
+    <div>
+      <div>Carpintería de Aluminio AC</div>
+      <div class="logo-sub">Sistema de Gestión</div>
+    </div>
+  </div>
+  <div class="hdate" id="hdate"></div>
+</header>
+
+<!-- SYNC STATUS BAR -->
+<div id="sync-status" style="text-align:center;padding:5px 16px;font-size:12px;font-weight:600;background:#e6f7f1;color:#0d8a5c;border-bottom:1px solid rgba(0,0,0,0.06);letter-spacing:0.3px">
+  ⏳ Conectando con la nube...
+</div>
+
+<!-- SYNC BADGE -->
+<div id="sync-badge" style="position:fixed;bottom:50px;right:16px;background:#0d8a5c;color:#fff;padding:7px 16px;border-radius:20px;font-size:12px;font-weight:700;opacity:0;transition:opacity .4s;z-index:9999;pointer-events:none;box-shadow:0 2px 12px rgba(0,0,0,0.2)">
+  ☁️ Guardado en la nube
+</div>
+
+<nav>
+  <button class="nb active" onclick="sp('dash')" id="n-dash">🏠 Inicio</button>
+  <button class="nb" onclick="sp('visita')" id="n-visita">📱 Visita Rápida</button>
+  <button class="nb" onclick="sp('costes')" id="n-costes">📊 Hoja de Costes</button>
+  <button class="nb" onclick="sp('corte')" id="n-corte">✂️ Hoja de Corte</button>
+  <button class="nb" onclick="sp('perfiles')" id="n-perfiles">📦 Perfiles / Tarifas</button>
+  <button class="nb" onclick="sp('historial')" id="n-historial">🗂️ Historial</button>
+  <button class="nb" onclick="sp('pdf')" id="n-pdf">📄 Presupuesto Cliente</button>
+</nav>
+
+<main>
+
+<!-- ══════════ DASHBOARD ══════════ -->
+<div class="page active" id="page-dash">
+  <div class="pg-title">Panel de Control</div>
+  <p class="pg-sub">Carpintería de Aluminio AC — Sistema de gestión</p>
+  <div class="g4" style="margin-bottom:20px">
+    <div class="stat blue"><div class="stat-n" id="ds-pres">0</div><div class="stat-l">Presupuestos</div></div>
+    <div class="stat green"><div class="stat-n" id="ds-aceptados">0</div><div class="stat-l">Aceptados</div></div>
+    <div class="stat orange"><div class="stat-n" id="ds-venta">0€</div><div class="stat-l">Facturación Total</div></div>
+    <div class="stat red"><div class="stat-n" id="ds-margen">—</div><div class="stat-l">Margen Medio</div></div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="ct">⚡ Acciones Rápidas</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <button class="btn btn-primary btn-block" onclick="sp('visita')">📱 Nueva Visita</button>
+        <button class="btn btn-ghost btn-block" onclick="sp('costes')">📊 Hoja Costes</button>
+        <button class="btn btn-ghost btn-block" onclick="sp('corte')">✂️ Hoja de Corte</button>
+        <button class="btn btn-ghost btn-block" onclick="sp('perfiles')">📦 Cargar Tarifas</button>
+        <button class="btn btn-ghost btn-block" onclick="sp('historial')">🗂️ Historial</button>
+        <button class="btn btn-ghost btn-block" onclick="sp('pdf')">📄 PDF Cliente</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ct">🗂️ Últimos Presupuestos</div>
+      <div id="ds-tabla"><p class="ts" style="text-align:center;padding:20px">Sin presupuestos aún</p></div>
+    </div>
+  </div>
+
+  <!-- FIREBASE CONFIG -->
+  <div class="card" style="margin-top:16px;border:2px dashed rgba(26,95,168,0.3)">
+    <div class="ct">☁️ Sincronización en la Nube (Firebase)</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.7">
+      Introduce los datos de tu proyecto Firebase para sincronizar entre el móvil y el ordenador.
+      Los datos quedan guardados en este navegador para no tener que introducirlos cada vez.<br>
+      <a href="https://console.firebase.google.com/" target="_blank" style="color:var(--accent);font-weight:600">👉 Abrir Firebase Console (gratuito)</a>
+    </div>
+    <div class="g2">
+      <div class="fg"><label>API Key</label><input id="fb-apikey" placeholder="AIzaSy..."></div>
+      <div class="fg"><label>Auth Domain</label><input id="fb-authdomain" placeholder="proyecto.firebaseapp.com"></div>
+      <div class="fg"><label>Project ID</label><input id="fb-projectid" placeholder="proyecto-12345"></div>
+      <div class="fg"><label>Storage Bucket</label><input id="fb-storage" placeholder="proyecto.appspot.com"></div>
+      <div class="fg"><label>Messaging Sender ID</label><input id="fb-msgid" placeholder="123456789012"></div>
+      <div class="fg"><label>App ID</label><input id="fb-appid" placeholder="1:123:web:abc123"></div>
+    </div>
+    <div class="flex" style="gap:10px;margin-top:4px">
+      <button class="btn btn-primary" onclick="fbConfig_apply()">🔌 Conectar y Sincronizar</button>
+      <span id="fb-conn-result" style="font-size:12px"></span>
+    </div>
+    <div class="info-box" style="margin-top:14px">
+      <strong>📋 Pasos (5 minutos, gratis):</strong><br>
+      1· Ve a <strong>console.firebase.google.com</strong> → "Crear proyecto" → nombre ej: <em>carpinteria-ac</em><br>
+      2· Panel del proyecto → icono <strong>&lt;/&gt; Web</strong> → registra la app → copia los datos de <code>firebaseConfig</code><br>
+      3· Ve a <strong>Firestore Database</strong> → "Crear base de datos" → Modo prueba → Europa<br>
+      4· Pega los datos aquí y pulsa "Conectar" → ¡sincronización activa en todos tus dispositivos!
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ VISITA RÁPIDA ══════════ -->
+<div class="page" id="page-visita">
+  <div class="pg-title">Visita al Cliente</div>
+  <p class="pg-sub">Calcula el precio orientativo en el momento</p>
+  <div class="g2">
+    <div>
+      <div class="card">
+        <div class="ct">🏠 Datos de la Visita</div>
+        <div class="fg"><label>Cliente</label><input id="v-cli" placeholder="Nombre del cliente..."></div>
+        <div class="g2">
+          <div class="fg"><label>Teléfono</label><input id="v-tel" placeholder="666 000 000"></div>
+          <div class="fg"><label>Dirección obra</label><input id="v-obra" placeholder="Calle..."></div>
+        </div>
+        <div class="fg"><label>Notas</label><textarea id="v-notas" placeholder="Observaciones..."></textarea></div>
+      </div>
+      <div class="card">
+        <div class="ct">➕ Añadir Elemento</div>
+        <div class="fg">
+          <label>Tipo de producto</label>
+          <select id="v-tipo" onchange="v_updateUI()">
+            <option value="">— Selecciona producto —</option>
+            <option value="VA">🪟 Ventana Abatible / Oscilobatiente</option>
+            <option value="VC">🪟 Ventana Corredera</option>
+            <option value="PP">🚪 Puerta de Paso</option>
+            <option value="PC">🚪 Puerta Corredera</option>
+            <option value="CI">⬇️ Cierre / Persiana</option>
+            <option value="VB">⚡ Valla / Barandilla</option>
+            <option value="MB">🚿 Mampara de Baño</option>
+            <option value="PM">🔧 Pieza a Medida</option>
+          </select>
+        </div>
+        <div class="g3">
+          <div class="fg"><label>Ancho (mm)</label><input id="v-ancho" type="number" placeholder="1200" oninput="v_calc()"></div>
+          <div class="fg"><label>Alto (mm)</label><input id="v-alto" type="number" placeholder="1000" oninput="v_calc()"></div>
+          <div class="fg">
+            <label>Nº Hojas</label>
+            <div class="num-input-wrap">
+              <button class="num-btn" onclick="changeHojas(-1)">−</button>
+              <input id="v-hojas" type="number" value="2" min="1" max="6" oninput="v_calc()">
+              <button class="num-btn" onclick="changeHojas(1)">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="g3">
+          <div class="fg"><label>Acabado</label>
+            <select id="v-acab" onchange="v_calc()">
+              <option value="Blanco">Blanco</option>
+              <option value="Maderas 1">Maderas 1</option>
+              <option value="Maderas 2">Maderas 2</option>
+              <option value="Básico">Básico</option>
+              <option value="No Básico">No Básico</option>
+              <option value="Especial">Especial</option>
+              <option value="Adapta">Adapta</option>
+            </select>
+          </div>
+          <div class="fg"><label>Vidrio</label>
+            <select id="v-vid" onchange="v_calc()">
+              <option value="0">Sin vidrio</option>
+              <option value="28">Climalit 4/6/4</option>
+              <option value="38">Climalit 4/10/4</option>
+              <option value="55">Climalit BE 4/16/4</option>
+              <option value="50">Laminado 3+3</option>
+              <option value="65">Seguridad 4+4</option>
+            </select>
+          </div>
+          <div class="fg"><label>Cantidad</label><input id="v-cant" type="number" value="1" min="1" oninput="v_calc()"></div>
+        </div>
+        <div class="fg"><label>Notas de partida</label><input id="v-pnota" placeholder="Observaciones..."></div>
+        <button class="btn btn-primary btn-block" onclick="v_add()">➕ Añadir al Presupuesto</button>
+      </div>
+      <div class="price-box" id="v-precio-box" style="margin-top:16px">
+        <div class="price-sub">Precio Orientativo Unitario</div>
+        <div class="price-big" id="v-precio-live">—</div>
+        <div class="price-sub" id="v-precio-det" style="margin-top:4px">Introduce medidas</div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="ct">📐 Diseños Estándar</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px" id="v-cat-grid"></div>
+      </div>
+      <div class="card">
+        <div class="ct">📋 Partidas de esta Visita</div>
+        <div id="v-lista"><p class="ts" style="text-align:center;padding:16px">Sin partidas aún</p></div>
+        <div id="v-total-box" class="hidden">
+          <div class="sep"></div>
+          <div id="v-total-lines"></div>
+          <div class="flex" style="margin-top:14px;gap:10px">
+            <button class="btn btn-primary" onclick="pasarPDF()">📄 Generar Presupuesto PDF</button>
+            <button class="btn btn-ghost" onclick="pasarCostes()">📊 Hoja de Costes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ HOJA DE COSTES ══════════ -->
+<div class="page" id="page-costes">
+  <div class="pg-title">Hoja de Costes</div>
+  <p class="pg-sub">Desglose real de costes, cálculo automático de aluminio y margen de ganancia</p>
+
+  <div class="g2">
+    <div>
+      <div class="card">
+        <div class="ct">⚙️ Parámetros del Proyecto</div>
+        <div class="fg"><label>Nombre del Proyecto</label><input id="c-nombre" placeholder="Ej: Vivienda Calle Betis 14..."></div>
+        <div class="fg"><label>Cliente</label><input id="c-cliente" placeholder="Nombre del cliente"></div>
+      </div>
+
+      <!-- CÁLCULO AUTOMÁTICO ALUMINIO -->
+      <div class="card">
+        <div class="ct">🪟 Cálculo Automático de Aluminio</div>
+        <div class="info-box">💡 Introduce las medidas y el programa calculará automáticamente los perfiles necesarios y su coste.</div>
+        <div class="g3">
+          <div class="fg"><label>Tipo de Ventana</label>
+            <select id="alum-tipo" onchange="alum_calc()">
+              <option value="abatible">Abatible</option>
+              <option value="corredera">Corredera</option>
+            </select>
+          </div>
+          <div class="fg"><label>Ancho (mm)</label><input id="alum-ancho" type="number" placeholder="1200" oninput="alum_calc()"></div>
+          <div class="fg"><label>Alto (mm)</label><input id="alum-alto" type="number" placeholder="1000" oninput="alum_calc()"></div>
+        </div>
+        <div class="g3">
+          <div class="fg"><label>Nº Hojas</label>
+            <div class="num-input-wrap">
+              <button class="num-btn" onclick="changeAlumHojas(-1)">−</button>
+              <input id="alum-hojas" type="number" value="2" min="1" max="4" oninput="alum_calc()">
+              <button class="num-btn" onclick="changeAlumHojas(1)">+</button>
+            </div>
+          </div>
+          <div class="fg" id="alum-junquillo-fg">
+            <label>Hoja con Junquillo</label>
+            <select id="alum-junquillo" onchange="alum_calc()">
+              <option value="si">Con Junquillo</option>
+              <option value="no">Sin Junquillo</option>
+            </select>
+          </div>
+        </div>
+        <!-- Asignación manual de perfiles -->
+        <div id="alum-asignar-abatible">
+          <div class="sep"></div>
+          <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px">🔧 Asignar perfiles de tu tarifa</div>
+          <div class="g2">
+            <div class="fg"><label>Marco (altos y anchos)</label>
+              <select id="sel-marco" onchange="alum_calc()"><option value="">— selecciona —</option></select>
+            </div>
+            <div class="fg"><label>Hoja con/sin Junquillo</label>
+              <select id="sel-hoja" onchange="alum_calc()"><option value="">— selecciona —</option></select>
+            </div>
+            <div class="fg"><label>Junquillo</label>
+              <select id="sel-junquillo" onchange="alum_calc()"><option value="">— sin junquillo —</option></select>
+            </div>
+            <div class="fg"><label>Inversor</label>
+              <select id="sel-inversor" onchange="alum_calc()"><option value="">— selecciona —</option></select>
+            </div>
+          </div>
+        </div>
+        <div id="alum-asignar-corredera" class="hidden">
+          <div class="sep"></div>
+          <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px">🔧 Asignar perfiles de tu tarifa</div>
+          <div class="g2">
+            <div class="fg"><label>Marco Lateral</label>
+              <select id="sel-c-marcolat" onchange="alum_calc()"><option value="">— selecciona —</option></select>
+            </div>
+            <div class="fg"><label>Guía Inferior</label>
+              <select id="sel-c-guiainf" onchange="alum_calc()"><option value="">— selecciona —</option></select>
+            </div>
+            <div class="fg"><label>Guía Superior</label>
+              <select id="sel-c-guiasup" onchange="alum_calc()"><option value="">— selecciona —</option></select>
+            </div>
+            <div class="fg"><label>Hoja Centro</label>
+              <select id="sel-c-hojacentro" onchange="alum_calc()"><option value="">— selecciona —</option></select>
+            </div>
+            <div class="fg"><label>Hoja Lateral</label>
+              <select id="sel-c-hojalat" onchange="alum_calc()"><option value="">— selecciona —</option></select>
+            </div>
+            <div class="fg"><label>Hoja Ruleta</label>
+              <select id="sel-c-ruleta" onchange="alum_calc()"><option value="">— selecciona —</option></select>
+            </div>
+          </div>
+        </div>
+        <div style="display:none"><!-- spacer -->
+          <div class="fg"><label>Acabado / Color</label>
+            <select id="alum-acabado" onchange="alum_calc()">
+              <option value="Blanco">Blanco</option>
+              <option value="Maderas 1">Maderas 1</option>
+              <option value="Maderas 2">Maderas 2</option>
+              <option value="Básico">Básico</option>
+              <option value="No Básico">No Básico</option>
+              <option value="Especial">Especial</option>
+              <option value="Adapta">Adapta</option>
+            </select>
+          </div>
+        </div>
+        <div id="alum-resultado" class="hidden">
+          <div class="sep"></div>
+          <div class="ct">📐 Perfiles Necesarios</div>
+          <div id="alum-perfiles-list"></div>
+          <div class="sep"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0">
+            <span style="font-weight:700;font-size:15px">Coste Estimado Aluminio:</span>
+            <span style="font-family:'Playfair Display',serif;font-size:26px;font-weight:800;color:var(--accent)" id="alum-coste-total">0,00 €</span>
+          </div>
+          <button class="btn btn-primary btn-block" onclick="alum_pasarCostes()">📊 Pasar a Costes Directos</button>
+        </div>
+        <div id="alum-sin-perfiles" class="warn-box hidden">
+          ⚠️ No hay perfiles cargados en tu tarifa o no encuentro los perfiles para este tipo. Ve a <strong>Perfiles / Tarifas</strong> para cargar precios.
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ct">💰 Costes Directos</div>
+        <div class="g2">
+          <div class="fg"><label>Coste Perfiles Aluminio (€)</label><input id="c-perfiles" type="number" value="0" placeholder="0" oninput="c_calc()"></div>
+          <div class="fg"><label>Coste Herrajes (€)</label><input id="c-herrajes" type="number" value="0" placeholder="0" oninput="c_calc()"></div>
+          <div class="fg"><label>Coste Vidrio (€)</label><input id="c-vidrio" type="number" value="0" placeholder="0" oninput="c_calc()"></div>
+          <div class="fg"><label>Consumibles (€)</label><input id="c-consumibles" type="number" value="0" placeholder="0" oninput="c_calc()"></div>
+        </div>
+        <div class="sep"></div>
+        <div class="ct">👷 Mano de Obra</div>
+        <div class="g2">
+          <div class="fg"><label>Horas Fabricación Taller</label><input id="c-hfab" type="number" value="0" placeholder="0" oninput="c_calc()"></div>
+          <div class="fg"><label>€/hora Fabricación</label><input id="c-efab" type="number" value="18" oninput="c_calc()"></div>
+          <div class="fg"><label>Horas Instalación</label><input id="c-hinst" type="number" value="0" placeholder="0" oninput="c_calc()"></div>
+          <div class="fg"><label>€/hora Instalación</label><input id="c-einst" type="number" value="22" oninput="c_calc()"></div>
+        </div>
+        <div class="sep"></div>
+        <div class="ct">🚗 Otros Gastos</div>
+        <div class="g2">
+          <div class="fg"><label>Gasolina / Desplazamiento (€)</label><input id="c-gasolina" type="number" value="0" placeholder="0" oninput="c_calc()"></div>
+          <div class="fg"><label>Otros (grúa, etc.) (€)</label><input id="c-otros" type="number" value="0" placeholder="0" oninput="c_calc()"></div>
+        </div>
+        <div class="sep"></div>
+        <div class="ct">💵 Precio de Venta</div>
+        <div class="g2">
+          <div class="fg"><label>Precio Venta al Cliente (€, sin IVA)</label><input id="c-venta" type="number" value="0" placeholder="0" oninput="c_calc()"></div>
+          <div class="fg"><label>Fórmula: Materiales ×</label>
+            <div class="num-input-wrap">
+              <button class="num-btn" onclick="changeMulti(-0.25)">−</button>
+              <input id="c-multi" type="number" value="2" step="0.25" oninput="c_calc()">
+              <button class="num-btn" onclick="changeMulti(0.25)">+</button>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-green btn-block" onclick="c_calc();c_sugerirPrecio()">💡 Calcular Precio Sugerido</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="ct">📊 Análisis de Márgenes</div>
+        <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:20px">
+          <div class="donut-wrap">
+            <svg width="140" height="140" viewBox="0 0 140 140">
+              <circle cx="70" cy="70" r="55" fill="none" stroke="var(--bg3)" stroke-width="18"/>
+              <circle cx="70" cy="70" r="55" fill="none" stroke="var(--green)" stroke-width="18"
+                stroke-dasharray="345" stroke-dashoffset="345" id="donut-circle" style="transition:stroke-dashoffset 1s ease"/>
+            </svg>
+            <div class="donut-center">
+              <div class="donut-pct" id="donut-pct">0%</div>
+              <div class="donut-sub">Margen</div>
+            </div>
+          </div>
+          <div style="flex:1">
+            <div style="margin-bottom:10px">
+              <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Precio de Venta</div>
+              <div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:800;color:var(--accent)" id="c-res-venta">0 €</div>
+            </div>
+            <div style="margin-bottom:10px">
+              <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Coste Total</div>
+              <div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:800;color:var(--red)" id="c-res-coste">0 €</div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Beneficio Neto</div>
+              <div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:800;color:var(--green)" id="c-res-ben">0 €</div>
+            </div>
+          </div>
+        </div>
+        <div class="ct" style="margin-top:8px">Desglose por Categoría</div>
+        <div id="c-barras"></div>
+      </div>
+      <div class="card">
+        <div class="ct">📋 Hoja de Costes Detallada</div>
+        <div id="c-hoja"></div>
+        <div class="sep"></div>
+        <div class="flex" style="gap:10px">
+          <button class="btn btn-primary" onclick="c_exportar()">📄 Exportar</button>
+          <button class="btn btn-ghost" onclick="sp('pdf')">📄 Generar PDF</button>
+        </div>
+      </div>
+      <div class="card hidden" id="c-sugerido-box">
+        <div class="ct">💡 Precio Sugerido</div>
+        <div id="c-sugerido-content"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ HOJA DE CORTE ══════════ -->
+<div class="page" id="page-corte">
+  <div class="pg-title">Hoja de Corte</div>
+  <p class="pg-sub">Generación automática de hoja de corte y optimización de barras</p>
+
+  <!-- GENERADOR AUTOMÁTICO -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="ct">🤖 Generar Hoja de Corte Automática</div>
+    <div class="info-box">Introduce los datos de la ventana y se generará automáticamente la lista de piezas a cortar según el tipo (abatible o corredera). Revisa y ajusta antes de confirmar.</div>
+    <div class="g3">
+      <div class="fg"><label>Tipo</label>
+        <select id="hc-tipo" onchange="hc_updateUI()">
+          <option value="abatible">Abatible</option>
+          <option value="corredera">Corredera</option>
+        </select>
+      </div>
+      <div class="fg"><label>Ancho (mm)</label><input id="hc-ancho" type="number" placeholder="1200"></div>
+      <div class="fg"><label>Alto (mm)</label><input id="hc-alto" type="number" placeholder="1000"></div>
+    </div>
+    <div class="g3">
+      <div class="fg"><label>Nº Hojas</label>
+        <div class="num-input-wrap">
+          <button class="num-btn" onclick="changeHcHojas(-1)">−</button>
+          <input id="hc-hojas" type="number" value="2" min="1" max="4">
+          <button class="num-btn" onclick="changeHcHojas(1)">+</button>
+        </div>
+      </div>
+      <div class="fg" id="hc-junquillo-fg">
+        <label>Hoja</label>
+        <select id="hc-junquillo">
+          <option value="junquillo">Con Junquillo</option>
+          <option value="sinjunquillo">Sin Junquillo</option>
+        </select>
+      </div>
+      <div class="fg" style="align-self:flex-end">
+        <button class="btn btn-primary btn-block" onclick="hc_generar()">🤖 Generar Lista de Corte</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="ct">✂️ Piezas a Cortar</div>
+      <div class="flex" style="gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div class="fg" style="margin:0;flex:2;min-width:120px"><label>Referencia perfil</label><input id="co-ref" placeholder="Marco U-40..."></div>
+        <div class="fg" style="margin:0;width:110px"><label>Long. pieza (mm)</label><input id="co-long" type="number" placeholder="1200"></div>
+        <div class="fg" style="margin:0;width:70px"><label>Cant.</label><input id="co-cant" type="number" value="2"></div>
+        <div class="fg" style="margin:0;width:85px"><label>Ángulo</label>
+          <select id="co-ang"><option value="90">90°</option><option value="45">45°</option></select>
+        </div>
+        <div style="align-self:flex-end"><button class="btn btn-primary" onclick="co_add()">➕</button></div>
+      </div>
+      <table id="co-tabla">
+        <thead><tr><th>Referencia</th><th>Long.</th><th>Cant.</th><th>°</th><th>Total</th><th></th></tr></thead>
+        <tbody id="co-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Añade piezas o genera automáticamente</td></tr></tbody>
+      </table>
+    </div>
+    <div>
+      <div class="card">
+        <div class="ct">⚙️ Config Barras</div>
+        <div class="g2">
+          <div class="fg"><label>Long. barra (mm)</label><input id="co-blong" type="number" value="6000"></div>
+          <div class="fg"><label>Kerf sierra (mm)</label><input id="co-kerf" type="number" value="3"></div>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="co_calc()">🔄 Calcular Optimización</button>
+      </div>
+      <div class="card">
+        <div class="ct">📊 Resumen</div>
+        <div id="co-res" class="ts">Pulsa calcular</div>
+      </div>
+    </div>
+  </div>
+  <div class="card hidden" id="co-resultado">
+    <div class="ct">📋 Distribución de Barras</div>
+    <div id="co-vis"></div>
+  </div>
+</div>
+
+<!-- ══════════ PERFILES / TARIFAS ══════════ -->
+<div class="page" id="page-perfiles">
+  <div class="pg-title">Perfiles & Tarifas</div>
+  <p class="pg-sub">Gestiona los precios de tus perfiles. Pégalos en texto con el formato de tu fabricante o introdúcelos manualmente.</p>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('tab-texto','tabs-perfiles',this)">📋 Pegar Texto Tarifa</button>
+    <button class="tab" onclick="showTab('tab-ia','tabs-perfiles',this)">🤖 Importar con IA (Imagen)</button>
+    <button class="tab" onclick="showTab('tab-manual','tabs-perfiles',this)">✏️ Manual</button>
+    <button class="tab" onclick="showTab('tab-lista','tabs-perfiles',this)">📦 Mi Tarifa</button>
+  </div>
+
+  <div id="tabs-perfiles">
+    <!-- TEXTO -->
+    <div class="tab-content active" id="tab-texto">
+      <div class="card">
+        <div class="ct">📋 Pegar Tarifa en Formato Texto</div>
+        <div class="info-box">
+          <strong>Formato aceptado:</strong> Pega la tarifa tal como te la da el fabricante.<br>
+          Ejemplo:<br>
+          <code style="font-family:'DM Mono',monospace;font-size:12px;display:block;margin-top:6px;background:rgba(26,95,168,0.1);padding:8px;border-radius:6px">40001 INVERSOR AC-400<br>Acabado Precio<br>Blanco 19,83 €<br>Maderas 1 33,03 €<br>Básico 22,27 €</code>
+        </div>
+        <div class="g2">
+          <div class="fg"><label>Fabricante</label>
+            <select id="txt-fab">
+              <option>Accelum</option><option>Galisur</option><option>Cortizo</option><option>Technal</option><option>Otro</option>
+            </select>
+          </div>
+          <div class="fg"><label>Descuento con este fabricante (%)</label><input id="txt-dto" type="number" value="0" placeholder="Ej: 30"></div>
+        </div>
+        <div class="fg"><label>Pega aquí la tarifa completa</label>
+          <textarea id="txt-tarifa" style="min-height:220px;font-family:'DM Mono',monospace;font-size:13px" placeholder="40001 INVERSOR AC-400&#10;Acabado Precio&#10;Blanco 19,83 €&#10;Maderas 1 33,03 €&#10;Maderas 2 34,55 €&#10;Básico 22,27 €&#10;No Básico 23,39 €&#10;Especial 25,19 €&#10;Adapta 33,03 €&#10;&#10;40002 MARCO ABATIBLE&#10;Blanco 25,10 €&#10;..."></textarea>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="txt_parse()">📥 Importar Tarifa</button>
+        <div id="txt-resultado" class="hidden" style="margin-top:16px"></div>
+      </div>
+    </div>
+
+    <!-- IA IMAGEN -->
+    <div class="tab-content" id="tab-ia">
+      <div class="card">
+        <div class="ct">📸 Subir Foto de Catálogo</div>
+        <p class="ts" style="margin-bottom:16px">Sube una foto del catálogo del fabricante. La IA leerá los perfiles y precios automáticamente.</p>
+        <div class="upload-zone" onclick="document.getElementById('ia-file').click()">
+          <input type="file" id="ia-file" accept="image/*,application/pdf" onchange="ia_previewFile(event)">
+          <div style="font-size:44px;margin-bottom:12px">📸</div>
+          <div style="font-size:16px;font-weight:600;margin-bottom:6px">Pulsa para subir foto del catálogo</div>
+          <div class="ts">JPG, PNG o PDF</div>
+        </div>
+        <div id="ia-preview" class="hidden" style="margin-top:16px">
+          <img id="ia-img" style="max-width:100%;max-height:300px;border-radius:var(--r-sm);border:1px solid var(--border)" />
+        </div>
+        <div class="g2" style="margin-top:16px">
+          <div class="fg"><label>Fabricante</label>
+            <select id="ia-fab"><option>Accelum</option><option>Galisur</option><option>Cortizo</option><option>Technal</option><option>Otro</option></select>
+          </div>
+          <div class="fg"><label>Tu descuento (%)</label><input id="ia-dto" type="number" value="0" placeholder="Ej: 30"></div>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="ia_extract()" id="ia-btn">🤖 Extraer Precios con IA</button>
+        <div id="ia-loading" class="hidden" style="text-align:center;padding:30px">
+          <div style="font-size:36px;animation:spin 1s linear infinite;display:inline-block">⚙️</div>
+          <div style="margin-top:10px;color:var(--text2)">Analizando catálogo con IA...</div>
+        </div>
+        <div id="ia-resultado" class="hidden" style="margin-top:16px"></div>
+      </div>
+    </div>
+
+    <!-- MANUAL -->
+    <div class="tab-content" id="tab-manual">
+      <div class="card">
+        <div class="ct">✏️ Añadir Perfil Manualmente</div>
+        <div class="g3">
+          <div class="fg"><label>Fabricante</label>
+            <select id="pm-fab"><option>Accelum</option><option>Galisur</option><option>Cortizo</option><option>Technal</option><option>Otro</option></select>
+          </div>
+          <div class="fg"><label>Referencia</label><input id="pm-ref" placeholder="Ej: 40001"></div>
+          <div class="fg"><label>Nombre / Descripción</label><input id="pm-desc" placeholder="Marco corredera..."></div>
+        </div>
+        <div class="info-box">Introduce los precios por acabado. Deja vacío los que no apliquen.</div>
+        <div class="g4">
+          <div class="fg"><label>Blanco (€/ml)</label><input id="pm-p-blanco" type="number" placeholder="0.00"></div>
+          <div class="fg"><label>Maderas 1 (€/ml)</label><input id="pm-p-mad1" type="number" placeholder="0.00"></div>
+          <div class="fg"><label>Maderas 2 (€/ml)</label><input id="pm-p-mad2" type="number" placeholder="0.00"></div>
+          <div class="fg"><label>Básico (€/ml)</label><input id="pm-p-bas" type="number" placeholder="0.00"></div>
+          <div class="fg"><label>No Básico (€/ml)</label><input id="pm-p-nobas" type="number" placeholder="0.00"></div>
+          <div class="fg"><label>Especial (€/ml)</label><input id="pm-p-esp" type="number" placeholder="0.00"></div>
+          <div class="fg"><label>Adapta (€/ml)</label><input id="pm-p-adapta" type="number" placeholder="0.00"></div>
+          <div class="fg"><label>Descuento (%)</label><input id="pm-dto" type="number" value="0" placeholder="0"></div>
+        </div>
+        <button class="btn btn-primary" onclick="pm_add()">➕ Añadir Perfil</button>
+      </div>
+    </div>
+
+    <!-- LISTA -->
+    <div class="tab-content" id="tab-lista">
+      <div class="card">
+        <div class="fb" style="margin-bottom:16px">
+          <div class="ct" style="margin:0">📦 Mi Tarifa de Perfiles</div>
+          <button class="btn btn-red btn-sm" onclick="if(confirm('¿Borrar todos los perfiles?')) {perfilesTarifa=[];renderPerfilesTarifa();guardar();}">🗑️ Borrar Todo</button>
+        </div>
+        <div id="perfiles-lista"><p class="ts" style="text-align:center;padding:20px">Sin perfiles cargados.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ HISTORIAL ══════════ -->
+<div class="page" id="page-historial">
+  <div class="pg-title">Historial & Contabilidad</div>
+  <p class="pg-sub">Registro de todos los presupuestos entregados y aceptados</p>
+
+  <div class="g4" style="margin-bottom:20px">
+    <div class="stat blue"><div class="stat-n" id="h-total">0</div><div class="stat-l">Presupuestos Totales</div></div>
+    <div class="stat green"><div class="stat-n" id="h-aceptados">0</div><div class="stat-l">Aceptados</div></div>
+    <div class="stat orange"><div class="stat-n" id="h-pendientes">0</div><div class="stat-l">Pendientes</div></div>
+    <div class="stat red"><div class="stat-n" id="h-rechazados">0</div><div class="stat-l">Rechazados</div></div>
+  </div>
+
+  <div class="g2">
+    <div>
+      <div class="card">
+        <div class="ct">➕ Registrar Presupuesto</div>
+        <div class="g2">
+          <div class="fg"><label>Cliente</label><input id="h-cli" placeholder="Nombre cliente"></div>
+          <div class="fg"><label>Referencia</label><input id="h-ref" placeholder="PRE-2025-001"></div>
+        </div>
+        <div class="g2">
+          <div class="fg"><label>Fecha</label><input id="h-fecha" type="date"></div>
+          <div class="fg"><label>Total (€, con IVA)</label><input id="h-total-val" type="number" placeholder="1250.00"></div>
+        </div>
+        <div class="g2">
+          <div class="fg"><label>Estado</label>
+            <select id="h-estado">
+              <option value="pendiente">Pendiente</option>
+              <option value="aceptado">Aceptado</option>
+              <option value="rechazado">Rechazado</option>
+            </select>
+          </div>
+          <div class="fg"><label>Tipo de trabajo</label>
+            <select id="h-tipo">
+              <option>Ventana Abatible</option>
+              <option>Ventana Corredera</option>
+              <option>Puerta</option>
+              <option>Mampara</option>
+              <option>Valla/Barandilla</option>
+              <option>Mixto</option>
+              <option>Otro</option>
+            </select>
+          </div>
+        </div>
+        <div class="fg"><label>Notas</label><textarea id="h-notas" placeholder="Descripción del trabajo..." style="min-height:60px"></textarea></div>
+        <button class="btn btn-primary btn-block" onclick="h_add()">📝 Registrar en Historial</button>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="fb" style="margin-bottom:16px">
+          <div class="ct" style="margin:0">📊 Facturación Mensual</div>
+        </div>
+        <div id="h-chart-bars" style="padding:8px 0"></div>
+        <div class="sep"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="ts">Total facturado (aceptados):</span>
+          <span style="font-family:'Playfair Display',serif;font-size:24px;color:var(--green)" id="h-total-fact">0,00 €</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="fb" style="margin-bottom:16px">
+      <div class="ct" style="margin:0">🗂️ Todos los Presupuestos</div>
+      <div class="flex" style="gap:8px">
+        <select id="h-filtro" onchange="renderHistorial()" style="width:auto;padding:6px 10px;font-size:12px">
+          <option value="todos">Todos</option>
+          <option value="aceptado">Aceptados</option>
+          <option value="pendiente">Pendientes</option>
+          <option value="rechazado">Rechazados</option>
+        </select>
+      </div>
+    </div>
+    <div id="historial-lista"><p class="ts" style="text-align:center;padding:30px">No hay presupuestos registrados</p></div>
+  </div>
+</div>
+
+<!-- ══════════ PDF CLIENTE ══════════ -->
+<div class="page" id="page-pdf">
+  <div class="pg-title">Presupuesto Cliente</div>
+  <p class="pg-sub">Documento profesional para entregar al cliente</p>
+  <div class="g2">
+    <div>
+      <div class="card">
+        <div class="ct">🏢 Tu Empresa</div>
+        <div class="fg"><label>Nombre empresa</label><input id="e-nom" placeholder="Carpintería de Aluminio AC"></div>
+        <div class="g2">
+          <div class="fg"><label>CIF</label><input id="e-cif" placeholder="B12345678"></div>
+          <div class="fg"><label>Teléfono</label><input id="e-tel" placeholder="000 000 000"></div>
+        </div>
+        <div class="fg"><label>Dirección</label><input id="e-dir" placeholder="C/ Industrial, 1"></div>
+        <div class="fg"><label>Email</label><input id="e-email" placeholder="taller@empresa.com"></div>
+      </div>
+      <div class="card">
+        <div class="ct">👤 Cliente</div>
+        <div class="fg"><label>Cliente</label><input id="cl-nom" placeholder="Nombre cliente"></div>
+        <div class="g2">
+          <div class="fg"><label>NIF</label><input id="cl-nif" placeholder="00000000A"></div>
+          <div class="fg"><label>Teléfono</label><input id="cl-tel" placeholder="666 000 000"></div>
+        </div>
+        <div class="fg"><label>Dirección</label><input id="cl-dir" placeholder="Dirección del cliente"></div>
+        <div class="g2">
+          <div class="fg"><label>Fecha</label><input id="cl-fec" type="date"></div>
+          <div class="fg"><label>Válido hasta</label><input id="cl-val" type="date"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct">💰 Condiciones</div>
+        <div class="g2">
+          <div class="fg"><label>IVA (%)</label><input id="cl-iva" type="number" value="21"></div>
+          <div class="fg"><label>Descuento (%)</label><input id="cl-dto" type="number" value="0"></div>
+        </div>
+        <div class="fg"><label>Forma de pago</label>
+          <select id="cl-pago">
+            <option>50% entrega pedido, 50% al instalar</option>
+            <option>100% al contado</option>
+            <option>30% firma, 70% instalación</option>
+            <option>Transferencia 30 días</option>
+          </select>
+        </div>
+        <div class="fg"><label>Condiciones / Notas</label><textarea id="cl-obs" placeholder="Incluye fabricación e instalación. Garantía 2 años..."></textarea></div>
+        <button class="btn btn-primary btn-block" onclick="pdf_gen()">📄 Generar Presupuesto</button>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="ct">📋 Partidas</div>
+        <div id="pdf-partidas-lista"></div>
+        <div class="sep"></div>
+        <div class="ct">➕ Añadir Partida</div>
+        <div class="fg"><label>Descripción</label><input id="pdf-desc" placeholder="Ventana corredera 2 hojas 120×100..."></div>
+        <div class="g3">
+          <div class="fg"><label>Uds</label><input id="pdf-uds" type="number" value="1"></div>
+          <div class="fg"><label>Precio unit (€)</label><input id="pdf-precio" type="number" placeholder="350"></div>
+          <div class="fg" style="align-self:flex-end"><button class="btn btn-ghost btn-block" onclick="pdf_addPartida()">➕</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="hidden" id="pdf-preview-wrap">
+    <div class="card">
+      <div class="fb" style="margin-bottom:16px">
+        <div class="ct">👁 Vista Previa</div>
+        <div class="flex" style="gap:8px">
+          <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / PDF</button>
+          <button class="btn btn-green" onclick="guardarEnHistorial()">💾 Guardar en Historial</button>
+        </div>
+      </div>
+      <div class="pdf-wrap" id="pdf-body"></div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<script>
+// ════ ESTADO GLOBAL ════
+let visitaPartidas = [];
+let pdfPartidas = [];
+let perfilesTarifa = [];
+let cortePiezas = [];
+let historial = [];
+let presCounter = 0;
+
+// ════ PERSISTENCIA localStorage ════
+const LS_KEYS = {
+  perfiles:      'ac_perfiles_v2',
+  historial:     'ac_historial_v2',
+  visita:        'ac_visita_v2',
+  corte:         'ac_corte_v2',
+  pdfPartidas:   'ac_pdfpartidas_v2',
+  counter:       'ac_counter_v2',
+  empresa:       'ac_empresa_v2',
+  costes:        'ac_costes_v2',
+};
+
+function guardar(){
+  // 1. Siempre guardar en localStorage (funciona offline)
+  try{
+    localStorage.setItem(LS_KEYS.perfiles,   JSON.stringify(perfilesTarifa));
+    localStorage.setItem(LS_KEYS.historial,  JSON.stringify(historial));
+    localStorage.setItem(LS_KEYS.visita,     JSON.stringify(visitaPartidas));
+    localStorage.setItem(LS_KEYS.corte,      JSON.stringify(cortePiezas));
+    localStorage.setItem(LS_KEYS.pdfPartidas,JSON.stringify(pdfPartidas));
+    localStorage.setItem(LS_KEYS.counter,    presCounter);
+  }catch(e){ console.warn('localStorage no disponible',e); }
+  // 2. También guardar en la nube si Firebase está listo
+  if(window.fbReady && window.cloudSaveAll){
+    window.empresaData = {
+      nom:   document.getElementById('e-nom')?.value||'',
+      cif:   document.getElementById('e-cif')?.value||'',
+      tel:   document.getElementById('e-tel')?.value||'',
+      dir:   document.getElementById('e-dir')?.value||'',
+      email: document.getElementById('e-email')?.value||'',
+    };
+    window._lastHistSave = Date.now();
+    window._lastPerfSave = Date.now();
+    window.cloudSaveAll();
+  }
+  // 3. Mostrar badge local
+  const b = document.getElementById('save-badge');
+  if(b){ b.style.opacity='1'; setTimeout(()=>b.style.opacity='0',1500); }
+}
+
+function guardarEmpresa(){
+  try{
+    const emp = {
+      nom:  document.getElementById('e-nom')?.value||'',
+      cif:  document.getElementById('e-cif')?.value||'',
+      tel:  document.getElementById('e-tel')?.value||'',
+      dir:  document.getElementById('e-dir')?.value||'',
+      email:document.getElementById('e-email')?.value||'',
+    };
+    localStorage.setItem(LS_KEYS.empresa, JSON.stringify(emp));
+  }catch(e){}
+}
+
+function guardarCostes(){
+  try{
+    const c = {
+      nombre:       document.getElementById('c-nombre')?.value||'',
+      cliente:      document.getElementById('c-cliente')?.value||'',
+      perfiles:     document.getElementById('c-perfiles')?.value||0,
+      herrajes:     document.getElementById('c-herrajes')?.value||0,
+      vidrio:       document.getElementById('c-vidrio')?.value||0,
+      consumibles:  document.getElementById('c-consumibles')?.value||0,
+      hfab:         document.getElementById('c-hfab')?.value||0,
+      efab:         document.getElementById('c-efab')?.value||18,
+      hinst:        document.getElementById('c-hinst')?.value||0,
+      einst:        document.getElementById('c-einst')?.value||22,
+      gasolina:     document.getElementById('c-gasolina')?.value||0,
+      otros:        document.getElementById('c-otros')?.value||0,
+      venta:        document.getElementById('c-venta')?.value||0,
+      multi:        document.getElementById('c-multi')?.value||2,
+    };
+    localStorage.setItem(LS_KEYS.costes, JSON.stringify(c));
+  }catch(e){}
+}
+
+function cargar(){
+  // Cargar desde localStorage (siempre disponible inmediatamente)
+  try{
+    const p  = localStorage.getItem(LS_KEYS.perfiles);   if(p)  perfilesTarifa  = JSON.parse(p);
+    const h  = localStorage.getItem(LS_KEYS.historial);  if(h)  historial       = JSON.parse(h);
+    const v  = localStorage.getItem(LS_KEYS.visita);     if(v)  visitaPartidas  = JSON.parse(v);
+    const co = localStorage.getItem(LS_KEYS.corte);      if(co) cortePiezas     = JSON.parse(co);
+    const pp = localStorage.getItem(LS_KEYS.pdfPartidas);if(pp) pdfPartidas     = JSON.parse(pp);
+    const ct = localStorage.getItem(LS_KEYS.counter);    if(ct) presCounter     = parseInt(ct)||0;
+  }catch(e){ console.warn('Error cargando datos locales',e); }
+}
+
+// Carga desde la nube (se llama después de que Firebase esté listo)
+async function cargarDesdeNube(){
+  if(!window.fbReady || !window.cloudLoad) return;
+  const ok = await window.cloudLoad();
+  if(ok){
+    // Actualizar UI con datos de la nube
+    renderVisitaPartidas();
+    co_render();
+    renderPerfilesTarifa();
+    pdf_renderPartidas();
+    c_calc();
+    updateDash();
+    renderHistorial();
+    alum_calc();
+    if(window.empresaData){
+      const e = window.empresaData;
+      if(e.nom)   document.getElementById('e-nom').value   = e.nom;
+      if(e.cif)   document.getElementById('e-cif').value   = e.cif;
+      if(e.tel)   document.getElementById('e-tel').value   = e.tel;
+      if(e.dir)   document.getElementById('e-dir').value   = e.dir;
+      if(e.email) document.getElementById('e-email').value = e.email;
+    }
+    document.getElementById('sync-status').textContent = '☁️ Datos sincronizados — ' + new Date().toLocaleTimeString('es-ES');
+    console.log("Datos cargados desde la nube OK");
+  }
+}
+
+function cargarEmpresa(){
+  try{
+    const e = localStorage.getItem(LS_KEYS.empresa);
+    if(!e) return;
+    const emp = JSON.parse(e);
+    if(emp.nom)   document.getElementById('e-nom').value   = emp.nom;
+    if(emp.cif)   document.getElementById('e-cif').value   = emp.cif;
+    if(emp.tel)   document.getElementById('e-tel').value   = emp.tel;
+    if(emp.dir)   document.getElementById('e-dir').value   = emp.dir;
+    if(emp.email) document.getElementById('e-email').value = emp.email;
+  }catch(e){}
+}
+
+function cargarCostes(){
+  try{
+    const c = localStorage.getItem(LS_KEYS.costes);
+    if(!c) return;
+    const co = JSON.parse(c);
+    const map = {
+      'c-nombre':co.nombre,'c-cliente':co.cliente,
+      'c-perfiles':co.perfiles,'c-herrajes':co.herrajes,
+      'c-vidrio':co.vidrio,'c-consumibles':co.consumibles,
+      'c-hfab':co.hfab,'c-efab':co.efab,
+      'c-hinst':co.hinst,'c-einst':co.einst,
+      'c-gasolina':co.gasolina,'c-otros':co.otros,
+      'c-venta':co.venta,'c-multi':co.multi,
+    };
+    Object.entries(map).forEach(([id,val])=>{
+      const el = document.getElementById(id);
+      if(el && val!==undefined && val!=='') el.value = val;
+    });
+  }catch(e){}
+}
+
+// Auto-guardar al cambiar inputs críticos
+function autoGuardar(){ guardar(); }
+
+// ════ SVG IMÁGENES TÉCNICAS DE PRODUCTOS ════
+const SVG_PRODUCTOS = {
+  VA: `<svg viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg">
+    <!-- Marco exterior -->
+    <rect x="8" y="8" width="144" height="104" rx="2" fill="none" stroke="#1a5fa8" stroke-width="5"/>
+    <!-- Hoja interior -->
+    <rect x="18" y="18" width="124" height="84" rx="1" fill="rgba(147,197,253,0.25)" stroke="#1a5fa8" stroke-width="3"/>
+    <!-- Vidrio -->
+    <rect x="26" y="26" width="108" height="68" rx="1" fill="rgba(147,197,253,0.4)" stroke="rgba(26,95,168,0.3)" stroke-width="1"/>
+    <!-- Bisagra izquierda -->
+    <rect x="8" y="35" width="7" height="12" rx="1" fill="#64748b"/>
+    <rect x="8" y="73" width="7" height="12" rx="1" fill="#64748b"/>
+    <!-- Manilla -->
+    <circle cx="133" cy="60" r="4" fill="#64748b"/>
+    <line x1="133" y1="56" x2="133" y2="64" stroke="#64748b" stroke-width="2.5"/>
+    <!-- Flecha apertura -->
+    <path d="M 142 45 Q 155 60 142 75" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <polygon points="142,75 145,69 149,74" fill="#94a3b8"/>
+    <!-- Texto -->
+    <text x="80" y="114" text-anchor="middle" font-size="9" fill="#64748b" font-family="sans-serif">ABATIBLE / OSCILOBATIENTE</text>
+  </svg>`,
+
+  VC: `<svg viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg">
+    <!-- Marco exterior -->
+    <rect x="8" y="8" width="144" height="104" rx="2" fill="none" stroke="#0d8a5c" stroke-width="5"/>
+    <!-- Guía inferior / superior -->
+    <line x1="8" y1="22" x2="152" y2="22" stroke="#0d8a5c" stroke-width="2.5"/>
+    <line x1="8" y1="98" x2="152" y2="98" stroke="#0d8a5c" stroke-width="2.5"/>
+    <!-- Hoja izquierda (fija) -->
+    <rect x="14" y="22" width="60" height="76" fill="rgba(110,231,183,0.2)" stroke="#0d8a5c" stroke-width="2.5"/>
+    <rect x="20" y="28" width="48" height="64" fill="rgba(110,231,183,0.35)" stroke="rgba(13,138,92,0.3)" stroke-width="1"/>
+    <!-- Hoja derecha (móvil) -->
+    <rect x="86" y="22" width="60" height="76" fill="rgba(110,231,183,0.2)" stroke="#0d8a5c" stroke-width="2.5"/>
+    <rect x="92" y="28" width="48" height="64" fill="rgba(110,231,183,0.35)" stroke="rgba(13,138,92,0.3)" stroke-width="1"/>
+    <!-- Manillas -->
+    <rect x="72" y="53" width="3" height="14" rx="1.5" fill="#64748b"/>
+    <rect x="83" y="53" width="3" height="14" rx="1.5" fill="#64748b"/>
+    <!-- Flecha corredera -->
+    <path d="M 96 10 L 148 10" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+    <polygon points="148,10 141,7 141,13" fill="#94a3b8"/>
+    <text x="80" y="114" text-anchor="middle" font-size="9" fill="#64748b" font-family="sans-serif">CORREDERA 2 HOJAS</text>
+  </svg>`,
+
+  PP: `<svg viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg">
+    <!-- Marco -->
+    <rect x="25" y="5" width="90" height="112" rx="2" fill="none" stroke="#d47000" stroke-width="5"/>
+    <!-- Hoja -->
+    <rect x="33" y="13" width="74" height="96" fill="rgba(253,186,116,0.2)" stroke="#d47000" stroke-width="2.5"/>
+    <!-- Panel interior -->
+    <rect x="40" y="20" width="27" height="38" rx="1" fill="rgba(253,186,116,0.3)" stroke="#d47000" stroke-width="1.5"/>
+    <rect x="73" y="20" width="27" height="38" rx="1" fill="rgba(253,186,116,0.3)" stroke="#d47000" stroke-width="1.5"/>
+    <rect x="40" y="66" width="27" height="38" rx="1" fill="rgba(253,186,116,0.3)" stroke="#d47000" stroke-width="1.5"/>
+    <rect x="73" y="66" width="27" height="38" rx="1" fill="rgba(253,186,116,0.3)" stroke="#d47000" stroke-width="1.5"/>
+    <!-- Bisagras -->
+    <rect x="25" y="30" width="8" height="10" rx="1" fill="#78716c"/>
+    <rect x="25" y="80" width="8" height="10" rx="1" fill="#78716c"/>
+    <!-- Manilla + cerrojo -->
+    <circle cx="92" cy="61" r="5" fill="#78716c"/>
+    <rect x="90" y="55" width="4" height="12" rx="2" fill="#a8a29e"/>
+    <text x="80" y="114" text-anchor="middle" font-size="9" fill="#64748b" font-family="sans-serif">PUERTA DE PASO</text>
+  </svg>`,
+
+  PC: `<svg viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg">
+    <!-- Marco -->
+    <rect x="8" y="5" width="144" height="112" rx="2" fill="none" stroke="#6d28d9" stroke-width="5"/>
+    <!-- Guías -->
+    <line x1="8" y1="20" x2="152" y2="20" stroke="#6d28d9" stroke-width="2.5"/>
+    <line x1="8" y1="108" x2="152" y2="108" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- Hoja -->
+    <rect x="55" y="20" width="89" height="88" fill="rgba(196,181,253,0.25)" stroke="#6d28d9" stroke-width="3"/>
+    <rect x="63" y="28" width="73" height="72" fill="rgba(196,181,253,0.35)" stroke="rgba(109,40,217,0.3)" stroke-width="1"/>
+    <!-- Rodillos -->
+    <circle cx="70" cy="18" r="4" fill="#78716c"/>
+    <circle cx="100" cy="18" r="4" fill="#78716c"/>
+    <circle cx="130" cy="18" r="4" fill="#78716c"/>
+    <!-- Manilla -->
+    <rect cx="58" cy="56" width="4" height="16" rx="2" fill="#78716c" x="56" y="56"/>
+    <!-- Flecha -->
+    <path d="M 50 64 L 15 64" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+    <polygon points="15,64 22,61 22,67" fill="#94a3b8"/>
+    <text x="80" y="118" text-anchor="middle" font-size="9" fill="#64748b" font-family="sans-serif">PUERTA CORREDERA</text>
+  </svg>`,
+
+  CI: `<svg viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg">
+    <!-- Marco hueco -->
+    <rect x="15" y="5" width="130" height="18" rx="2" fill="#c93030" opacity="0.8"/>
+    <!-- Lamas -->
+    <rect x="15" y="25" width="130" height="8" rx="1" fill="#fca5a5" stroke="#c93030" stroke-width="1"/>
+    <rect x="15" y="35" width="130" height="8" rx="1" fill="#fca5a5" stroke="#c93030" stroke-width="1"/>
+    <rect x="15" y="45" width="130" height="8" rx="1" fill="#fca5a5" stroke="#c93030" stroke-width="1"/>
+    <rect x="15" y="55" width="130" height="8" rx="1" fill="#fca5a5" stroke="#c93030" stroke-width="1"/>
+    <rect x="15" y="65" width="130" height="8" rx="1" fill="#fca5a5" stroke="#c93030" stroke-width="1"/>
+    <rect x="15" y="75" width="130" height="8" rx="1" fill="#fca5a5" stroke="#c93030" stroke-width="1"/>
+    <rect x="15" y="85" width="130" height="8" rx="1" fill="#fca5a5" stroke="#c93030" stroke-width="1"/>
+    <!-- Guías laterales -->
+    <rect x="8" y="5" width="8" height="98" rx="1" fill="none" stroke="#c93030" stroke-width="2"/>
+    <rect x="144" y="5" width="8" height="98" rx="1" fill="none" stroke="#c93030" stroke-width="2"/>
+    <!-- Flecha bajada -->
+    <line x1="80" y1="95" x2="80" y2="108" stroke="#94a3b8" stroke-width="2" stroke-dasharray="3,2"/>
+    <polygon points="80,110 77,104 83,104" fill="#94a3b8"/>
+    <text x="80" y="118" text-anchor="middle" font-size="9" fill="#64748b" font-family="sans-serif">CIERRE / PERSIANA</text>
+  </svg>`,
+
+  VB: `<svg viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg">
+    <!-- Postes verticales -->
+    <rect x="12" y="5" width="8" height="108" rx="2" fill="#0891b2"/>
+    <rect x="76" y="5" width="8" height="108" rx="2" fill="#0891b2"/>
+    <rect x="140" y="5" width="8" height="108" rx="2" fill="#0891b2"/>
+    <!-- Lamas horizontales -->
+    <rect x="20" y="18" width="120" height="10" rx="2" fill="rgba(103,232,249,0.4)" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="20" y="34" width="120" height="10" rx="2" fill="rgba(103,232,249,0.4)" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="20" y="50" width="120" height="10" rx="2" fill="rgba(103,232,249,0.4)" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="20" y="66" width="120" height="10" rx="2" fill="rgba(103,232,249,0.4)" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="20" y="82" width="120" height="10" rx="2" fill="rgba(103,232,249,0.4)" stroke="#0891b2" stroke-width="1.5"/>
+    <!-- Base postes (anclaje) -->
+    <rect x="8" y="108" width="16" height="8" rx="1" fill="#64748b"/>
+    <rect x="72" y="108" width="16" height="8" rx="1" fill="#64748b"/>
+    <rect x="136" y="108" width="16" height="8" rx="1" fill="#64748b"/>
+    <text x="80" y="118" text-anchor="middle" font-size="9" fill="#64748b" font-family="sans-serif">VALLA / BARANDILLA</text>
+  </svg>`,
+
+  MB: `<svg viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg">
+    <!-- Panel fijo -->
+    <rect x="8" y="8" width="62" height="96" rx="2" fill="rgba(147,197,253,0.25)" stroke="#be185d" stroke-width="4"/>
+    <rect x="14" y="14" width="50" height="84" fill="rgba(147,197,253,0.4)" stroke="rgba(190,24,93,0.25)" stroke-width="1"/>
+    <!-- Puerta -->
+    <rect x="78" y="8" width="74" height="96" rx="2" fill="rgba(147,197,253,0.25)" stroke="#be185d" stroke-width="4"/>
+    <rect x="84" y="14" width="62" height="84" fill="rgba(147,197,253,0.4)" stroke="rgba(190,24,93,0.25)" stroke-width="1"/>
+    <!-- Bisagras -->
+    <rect x="70" y="25" width="10" height="8" rx="1" fill="#64748b"/>
+    <rect x="70" y="65" width="10" height="8" rx="1" fill="#64748b"/>
+    <!-- Imán cierre -->
+    <circle cx="78" cy="56" r="4" fill="#be185d"/>
+    <!-- Manilla -->
+    <rect x="80" y="51" width="5" height="14" rx="2.5" fill="#78716c"/>
+    <!-- Plato ducha -->
+    <ellipse cx="80" cy="108" rx="72" ry="6" fill="rgba(190,24,93,0.15)" stroke="#be185d" stroke-width="1.5"/>
+    <text x="80" y="118" text-anchor="middle" font-size="9" fill="#64748b" font-family="sans-serif">MAMPARA DE BAÑO</text>
+  </svg>`,
+
+  PM: `<svg viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg">
+    <!-- Forma libre / pieza custom -->
+    <polygon points="30,10 130,10 150,30 150,90 130,110 30,110 10,90 10,30" fill="rgba(120,113,108,0.12)" stroke="#78716c" stroke-width="3" stroke-dasharray="6,3"/>
+    <!-- Dimensiones -->
+    <line x1="10" y1="118" x2="150" y2="118" stroke="#94a3b8" stroke-width="1.5"/>
+    <line x1="10" y1="114" x2="10" y2="122" stroke="#94a3b8" stroke-width="1.5"/>
+    <line x1="150" y1="114" x2="150" y2="122" stroke="#94a3b8" stroke-width="1.5"/>
+    <text x="80" y="113" text-anchor="middle" font-size="8" fill="#94a3b8" font-family="sans-serif">ANCHO</text>
+    <!-- Icono lápiz -->
+    <g transform="translate(65,38) rotate(-30)">
+      <rect x="0" y="0" width="10" height="32" rx="2" fill="#d97706"/>
+      <polygon points="0,32 10,32 5,44" fill="#fef3c7"/>
+      <rect x="0" y="0" width="10" height="6" rx="2" fill="#92400e"/>
+    </g>
+    <text x="80" y="118" text-anchor="middle" font-size="9" fill="#64748b" font-family="sans-serif">PIEZA A MEDIDA</text>
+  </svg>`,
+};
+
+// Perfiles esperados para cálculo automático (por nombre clave)
+// El usuario debe cargarlos en tarifas con estos nombres o similares
+const PERFIL_KEYS = {
+  abatible: {
+    marco:           ['MARCO VENTANA','MARCO VENTA','MARCO AC-400','VENTANA AC-400','VENTANA AC'],
+    hojaJunquillo:   ['40003','HOJA CON JUNQUILLO','HOJA JUNQUILLO AC','JUNQUILLO AC-400',
+                      'HOJA CON JUNQUILLO AC','AC-400','HOJA JUNQ'],
+    hojaSinJunquillo:['HOJA SIN JUNQUILLO','SIN JUNQUILLO','HOJA S/JUNQUILLO'],
+    junquillo:       ['JUNQUILLO L-27','L-27','JUNQUILLO H-9','JUNQUILLO AC','JUNQ'],
+    inversor:        ['INVERSOR AC-400','INVERSOR AC','40001','INVERSOR']
+  },
+  corredera: {
+    marcoLateral: ['MARCO LATERAL','PILASTRA','JAMBA','LATERAL CORREDERA'],
+    guiaInferior: ['GUIA INFERIOR','GUÍA INFERIOR','RIEL INFERIOR','GUIA INF'],
+    guiaSuperior: ['GUIA SUPERIOR','GUÍA SUPERIOR','RIEL SUPERIOR','GUIA SUP'],
+    hojacentro:   ['HOJA CENTRO','CENTRO HOJA','PERFIL CENTRO'],
+    hojaLateral:  ['HOJA LATERAL','LATERAL HOJA','HOJA RULETA'],
+    hojaRuleta:   ['RULETA H-10','HOJA RULETA','80019','RULETA PT-80','RULETA']
+  }
+};
+
+// ════ INIT ════
+window.onload = ()=>{
+  const n = new Date();
+  document.getElementById('hdate').textContent =
+    n.toLocaleDateString('es-ES',{weekday:'short',day:'numeric',month:'short',year:'numeric'}).toUpperCase();
+  ['cl-fec','cl-val','h-fecha'].forEach((id,i)=>{
+    const d = new Date(); if(i===1) d.setDate(d.getDate()+30);
+    const el = document.getElementById(id);
+    if(el) el.valueAsDate = d;
+  });
+  renderVCatGrid();
+  c_calc();
+  pdf_renderPartidas();
+  updateDash();
+  renderHistorial();
+  alum_calc();
+
+  // Auto-guardar al cambiar inputs
+  let saveTimer;
+  document.addEventListener('input', ()=>{
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(()=>{ guardar(); guardarEmpresa(); guardarCostes(); }, 800);
+  });
+  document.addEventListener('change', ()=>{
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(()=>{ guardar(); guardarEmpresa(); guardarCostes(); }, 500);
+  });
+
+  // Intentar cargar desde la nube cuando Firebase esté listo
+  let attempts = 0;
+  const waitForFirebase = setInterval(()=>{
+    attempts++;
+    if(window.fbReady === true){
+      clearInterval(waitForFirebase);
+      setTimeout(cargarDesdeNube, 300);
+    } else if(attempts > 40){
+      clearInterval(waitForFirebase);
+      const st = document.getElementById('sync-status');
+      if(st && !window.fbReady){
+        st.textContent = '📱 Solo local · Configura Firebase para sincronizar entre dispositivos';
+        st.style.background = '#fff3e0'; st.style.color = '#d47000';
+      }
+    }
+  }, 500);
+};
+
+// ════ NAV ════
+function sp(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  document.getElementById('n-'+id).classList.add('active');
+  window.scrollTo(0,0);
+}
+
+function showTab(tabId, containerId, btn){
+  const c = document.getElementById(containerId);
+  c.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  c.closest('.page').querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+}
+
+// ════ CATÁLOGO VISUAL ════
+const CATALOGO = [
+  {tipo:'VA', icon:'🪟', nombre:'Abatible', desc:'Oscilobatiente', color:'#1a5fa8'},
+  {tipo:'VC', icon:'🪟', nombre:'Corredera', desc:'2 hojas', color:'#0d8a5c'},
+  {tipo:'PP', icon:'🚪', nombre:'Puerta Paso', desc:'Abatible', color:'#d47000'},
+  {tipo:'PC', icon:'🚪', nombre:'Puerta Corr.', desc:'Exterior', color:'#6d28d9'},
+  {tipo:'CI', icon:'⬇️', nombre:'Persiana', desc:'Enrollable', color:'#c93030'},
+  {tipo:'VB', icon:'⚡', nombre:'Barandilla', desc:'Lamas', color:'#0891b2'},
+  {tipo:'MB', icon:'🚿', nombre:'Mampara', desc:'Vidrio templado', color:'#be185d'},
+  {tipo:'PM', icon:'🔧', nombre:'A Medida', desc:'Personalizada', color:'#78716c'},
+];
+
+function renderVCatGrid(){
+  document.getElementById('v-cat-grid').innerHTML = CATALOGO.map(p=>`
+    <div class="prod-card" onclick="selCat('${p.tipo}')">
+      <div class="prod-img" style="background:${p.color}15;padding:8px;overflow:hidden">
+        ${SVG_PRODUCTOS[p.tipo] || `<span style="font-size:36px">${p.icon}</span>`}
+      </div>
+      <div class="prod-body">
+        <div class="prod-name">${p.nombre}</div>
+        <div class="ts" style="font-size:11px">${p.desc}</div>
+      </div>
+    </div>`).join('');
+}
+
+function selCat(tipo){
+  document.getElementById('v-tipo').value = tipo;
+  v_calc();
+}
+
+// ════ PRECIOS BASE ════
+const ACAB_MULT = {
+  'Blanco':1.0, 'Básico':1.05, 'No Básico':1.15, 'Especial':1.25,
+  'Maderas 1':1.4, 'Maderas 2':1.5, 'Adapta':1.4
+};
+const PRECIOS_BASE = {
+  VC:{por:'m2', base:180, hojaMult:0.12, vidExtras:{0:0,28:28,38:36,55:56,50:46,65:66}},
+  VA:{por:'m2', base:250, hojaMult:0.05, vidExtras:{0:0,28:30,38:40,55:62,50:50,65:68}},
+  PP:{por:'fijo', base:900, vidExtras:{}},
+  PC:{por:'fijo', base:750, vidExtras:{}},
+  CI:{por:'m2', base:100, hojaMult:0, vidExtras:{}},
+  VB:{por:'ml', base:110, hojaMult:0, vidExtras:{}},
+  MB:{por:'fijo', base:420, vidExtras:{}},
+  PM:{por:'m2', base:200, hojaMult:0, vidExtras:{}},
+};
+
+function calcPrecio(tipo, ancho, alto, hojas, acab, vid, cant){
+  if(!tipo||!ancho||!alto) return 0;
+  const pr = PRECIOS_BASE[tipo]; if(!pr) return 0;
+  const m2 = (ancho/1000)*(alto/1000);
+  const ml = ancho/1000;
+  let base = 0;
+  if(pr.por==='m2') base = (pr.base + (pr.hojaMult||0)*(hojas-2)*pr.base) * m2;
+  else if(pr.por==='ml') base = pr.base * ml;
+  else base = pr.base;
+  const vidEx = (pr.vidExtras && pr.vidExtras[vid]||0) * m2;
+  const acabM = ACAB_MULT[acab]||1;
+  return Math.round((base + vidEx) * acabM * cant);
+}
+
+// ════ VISITA RÁPIDA ════
+function v_updateUI(){ v_calc(); }
+function changeHojas(d){
+  const el = document.getElementById('v-hojas');
+  el.value = Math.max(1, Math.min(6, (parseInt(el.value)||2)+d));
+  v_calc();
+}
+function v_calc(){
+  const tipo = document.getElementById('v-tipo').value;
+  const ancho = parseFloat(document.getElementById('v-ancho').value)||0;
+  const alto = parseFloat(document.getElementById('v-alto').value)||0;
+  const hojas = parseInt(document.getElementById('v-hojas').value)||2;
+  const acab = document.getElementById('v-acab').value;
+  const vid = document.getElementById('v-vid').value;
+  const cant = parseInt(document.getElementById('v-cant').value)||1;
+  if(!tipo||!ancho||!alto){
+    document.getElementById('v-precio-live').textContent='—';
+    document.getElementById('v-precio-det').textContent='Introduce producto y medidas';
+    return;
+  }
+  const precio = calcPrecio(tipo,ancho,alto,hojas,acab,vid,1);
+  const total = precio*cant;
+  document.getElementById('v-precio-live').textContent = precio.toLocaleString('es-ES')+'€';
+  const m2 = ((ancho/1000)*(alto/1000)).toFixed(2);
+  const tipoNom = document.getElementById('v-tipo').options[document.getElementById('v-tipo').selectedIndex]?.text||'';
+  document.getElementById('v-precio-det').textContent =
+    `${tipoNom} ${ancho}×${alto}mm · ${hojas} hojas · ${m2}m²${cant>1?' · '+cant+' uds → '+total.toLocaleString('es-ES')+'€ total':''}`;
+}
+function v_add(){
+  const tipo = document.getElementById('v-tipo').value;
+  const ancho = parseFloat(document.getElementById('v-ancho').value)||0;
+  const alto = parseFloat(document.getElementById('v-alto').value)||0;
+  const hojas = parseInt(document.getElementById('v-hojas').value)||2;
+  const acab = document.getElementById('v-acab').value;
+  const vid = document.getElementById('v-vid').value;
+  const cant = parseInt(document.getElementById('v-cant').value)||1;
+  const nota = document.getElementById('v-pnota').value;
+  if(!tipo||!ancho||!alto){alert('Selecciona tipo, ancho y alto.');return;}
+  const precio = calcPrecio(tipo,ancho,alto,hojas,acab,vid,cant);
+  const tipoNom = {'VC':'Ventana Corredera','VA':'Ventana Abatible','PP':'Puerta Paso','PC':'Puerta Corredera','CI':'Cierre/Persiana','VB':'Valla/Barandilla','MB':'Mampara','PM':'Pieza a Medida'}[tipo]||tipo;
+  visitaPartidas.push({tipo,tipoNom,ancho,alto,hojas,acab,vid,cant,nota,precio,id:Date.now()});
+  document.getElementById('v-pnota').value='';
+  renderVisitaPartidas();
+  syncPDFPartidas();
+  guardar();
+}
+function renderVisitaPartidas(){
+  const lista = document.getElementById('v-lista');
+  if(!visitaPartidas.length){
+    lista.innerHTML='<p class="ts" style="text-align:center;padding:16px">Sin partidas aún</p>';
+    document.getElementById('v-total-box').classList.add('hidden');
+    return;
+  }
+  const sub = visitaPartidas.reduce((s,p)=>s+p.precio,0);
+  const iva = sub*0.21;
+  lista.innerHTML = `<table>
+    <thead><tr><th>#</th><th>Producto</th><th>Medidas</th><th>Acab./Hojas</th><th>Precio</th><th></th></tr></thead>
+    <tbody>${visitaPartidas.map((p,i)=>`<tr>
+      <td style="color:var(--text3)">${i+1}</td>
+      <td><strong>${p.tipoNom}</strong>${p.nota?'<br><span style="font-size:11px;color:var(--text2)">'+p.nota+'</span>':''}</td>
+      <td style="font-size:12px;font-family:'DM Mono',monospace">${p.ancho}×${p.alto}mm<br>${p.cant}ud · ${p.hojas}H</td>
+      <td style="font-size:11px">${p.acab}</td>
+      <td style="font-family:'Playfair Display',serif;font-size:20px;color:var(--accent)">${p.precio.toLocaleString('es-ES')}€</td>
+      <td><button class="btn btn-red btn-sm" onclick="v_del(${p.id})">✕</button></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+  document.getElementById('v-total-lines').innerHTML = `
+    <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span>Subtotal</span><span>${sub.toLocaleString('es-ES')} €</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;color:var(--text2)"><span>IVA (21%)</span><span>${iva.toFixed(2)} €</span></div>
+    <div style="display:flex;justify-content:space-between;padding:10px 0;font-family:'Playfair Display',serif;font-size:22px;font-weight:800;color:var(--accent);border-top:2px solid var(--accent);margin-top:6px"><span>TOTAL</span><span>${(sub+iva).toFixed(2)} €</span></div>
+  `;
+  document.getElementById('v-total-box').classList.remove('hidden');
+  updateDash();
+}
+function v_del(id){ visitaPartidas=visitaPartidas.filter(p=>p.id!==id); renderVisitaPartidas(); syncPDFPartidas(); guardar(); }
+function pasarPDF(){ sp('pdf'); }
+function pasarCostes(){ sp('costes'); }
+function syncPDFPartidas(){
+  pdfPartidas = visitaPartidas.map(p=>({
+    desc:`${p.tipoNom} ${p.ancho}×${p.alto}mm · ${p.acab} · ${p.hojas} hoja${p.hojas>1?'s':''}${p.nota?' ('+p.nota+')':''}`,
+    uds:p.cant, precio:p.precio/p.cant
+  }));
+  pdf_renderPartidas();
+}
+
+// ════ CÁLCULO AUTOMÁTICO ALUMINIO ════
+function changeAlumHojas(d){
+  const el = document.getElementById('alum-hojas');
+  el.value = Math.max(1, Math.min(4, (parseInt(el.value)||2)+d));
+  alum_calc();
+}
+
+function buscarPerfil(keys, acabado){
+  // Busca en perfilesTarifa por nombre clave y devuelve precio para ese acabado
+  // Normaliza texto: quita tildes, espacios extra, mayúsculas
+  const norm = s => s.toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\s+/g,' ').trim();
+
+  for(const key of keys){
+    const keyN = norm(key);
+    const found = perfilesTarifa.find(p=>{
+      const refN  = norm(p.ref||'');
+      const descN = norm(p.desc||'');
+      const fullN = refN + ' ' + descN;
+      return refN.includes(keyN) || descN.includes(keyN) || fullN.includes(keyN);
+    });
+    if(found){
+      // Buscar precio para el acabado (normalizado también)
+      let precio = 0;
+      if(found.precios){
+        // Busca coincidencia exacta primero
+        const acabadoN = norm(acabado||'');
+        const matchKey = Object.keys(found.precios).find(k=> norm(k) === acabadoN);
+        if(matchKey){
+          precio = found.precios[matchKey] * (1 - (found.dto||0)/100);
+        } else {
+          // Si no encuentra el color exacto, usa el primero disponible
+          const firstKey = Object.keys(found.precios)[0];
+          if(firstKey) precio = found.precios[firstKey] * (1 - (found.dto||0)/100);
+        }
+      }
+      if(!precio) precio = found.precio || 0;
+      return {perfil: found, precio};
+    }
+  }
+  return null;
+}
+
+function alum_calc(){
+  const tipo     = document.getElementById('alum-tipo').value;
+  const anchoMm  = parseFloat(document.getElementById('alum-ancho').value)||0;
+  const altoMm   = parseFloat(document.getElementById('alum-alto').value)||0;
+  const hojas    = parseInt(document.getElementById('alum-hojas').value)||2;
+  const acabado  = document.getElementById('alum-acabado').value;
+  const junquillo= document.getElementById('alum-junquillo').value;
+
+  // Mostrar/ocultar según tipo
+  const esAbatible = tipo==='abatible';
+  document.getElementById('alum-junquillo-fg').style.display = esAbatible ? 'block' : 'none';
+  const ab = document.getElementById('alum-asignar-abatible');
+  const co = document.getElementById('alum-asignar-corredera');
+  if(ab) ab.style.display = esAbatible ? 'block' : 'none';
+  if(co) co.style.display = !esAbatible ? 'block' : 'none';
+
+  // Poblar selects si están vacíos
+  poblarSelectoresPerfiles();
+
+  if(!anchoMm || !altoMm){
+    document.getElementById('alum-resultado').classList.add('hidden');
+    return;
+  }
+
+  // Helper: obtener perfil por ID del select manual, o por búsqueda automática como fallback
+  function getPerfilById(selectId, fallbackKeys){
+    const selEl = document.getElementById(selectId);
+    const selId = selEl ? selEl.value : '';
+    if(selId){
+      const p = perfilesTarifa.find(x=>x.id===selId);
+      if(p) return p;
+    }
+    // Fallback: buscar por nombre clave
+    const res = buscarPerfil(fallbackKeys, acabado);
+    return res ? res.perfil : null;
+  }
+
+  function getPrecio(perfil){
+    if(!perfil) return 0;
+    if(perfil.precios){
+      // buscar exacto
+      const normAcab = acabado.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+      const key = Object.keys(perfil.precios).find(k=>
+        k.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim() === normAcab
+      );
+      if(key) return perfil.precios[key] * (1-(perfil.dto||0)/100);
+      // primer disponible
+      const first = Object.keys(perfil.precios)[0];
+      if(first) return perfil.precios[first] * (1-(perfil.dto||0)/100);
+    }
+    return perfil.precio||0;
+  }
+
+  let piezas = [];
+  const anchoHojaMm = anchoMm / hojas;
+
+  if(tipo==='abatible'){
+    const pMarco    = getPerfilById('sel-marco',    PERFIL_KEYS.abatible.marco);
+    const pHoja     = getPerfilById('sel-hoja',     junquillo==='si'?PERFIL_KEYS.abatible.hojaJunquillo:PERFIL_KEYS.abatible.hojaSinJunquillo);
+    const pJunq     = getPerfilById('sel-junquillo',PERFIL_KEYS.abatible.junquillo);
+    const pInversor = getPerfilById('sel-inversor', PERFIL_KEYS.abatible.inversor);
+    const nomHoja   = junquillo==='si' ? 'Hoja con Junquillo' : 'Hoja sin Junquillo';
+
+    piezas = [
+      {nombre:'Marco (altos)',   cantidad:2, longMm:altoMm,       perfil:pMarco,    detalle:`2 piezas × ${altoMm}mm`},
+      {nombre:'Marco (anchos)',  cantidad:2, longMm:anchoMm,      perfil:pMarco,    detalle:`2 piezas × ${anchoMm}mm`},
+      {nombre:nomHoja+' (altos)',cantidad:hojas*2, longMm:altoMm, perfil:pHoja,     detalle:`${hojas} hojas × 2 piezas × ${altoMm}mm`},
+      {nombre:nomHoja+' (anchos)',cantidad:hojas*2,longMm:anchoHojaMm,perfil:pHoja, detalle:`${hojas} hojas × 2 piezas × ${anchoHojaMm.toFixed(0)}mm`},
+    ];
+    if(junquillo==='si' && pJunq){
+      piezas.push({nombre:'Junquillo (altos)', cantidad:hojas*2, longMm:altoMm,      perfil:pJunq, detalle:`${hojas} hojas × 2 junquillos × ${altoMm}mm`});
+      piezas.push({nombre:'Junquillo (anchos)',cantidad:hojas*2, longMm:anchoHojaMm, perfil:pJunq, detalle:`${hojas} hojas × 2 junquillos × ${anchoHojaMm.toFixed(0)}mm`});
+    }
+    if(pInversor) piezas.push({nombre:'Inversor (alto)', cantidad:1, longMm:altoMm, perfil:pInversor, detalle:`1 pieza × ${altoMm}mm`});
+
+  } else {
+    const pMarcoLat  = getPerfilById('sel-c-marcolat',  PERFIL_KEYS.corredera.marcoLateral);
+    const pGuiaInf   = getPerfilById('sel-c-guiainf',   PERFIL_KEYS.corredera.guiaInferior);
+    const pGuiaSup   = getPerfilById('sel-c-guiasup',   PERFIL_KEYS.corredera.guiaSuperior);
+    const pHojaCentro= getPerfilById('sel-c-hojacentro',PERFIL_KEYS.corredera.hojacentro);
+    const pHojaLat   = getPerfilById('sel-c-hojalat',   PERFIL_KEYS.corredera.hojaLateral);
+    const pRuleta    = getPerfilById('sel-c-ruleta',     PERFIL_KEYS.corredera.hojaRuleta);
+
+    piezas = [
+      {nombre:'Marco Lateral',    cantidad:2,       longMm:altoMm,        perfil:pMarcoLat,  detalle:`2 piezas × ${altoMm}mm`},
+      {nombre:'Guía Inferior',    cantidad:1,       longMm:anchoMm,       perfil:pGuiaInf,   detalle:`1 pieza × ${anchoMm}mm`},
+      {nombre:'Guía Superior',    cantidad:1,       longMm:anchoMm,       perfil:pGuiaSup,   detalle:`1 pieza × ${anchoMm}mm`},
+      {nombre:'Hoja Centro',      cantidad:hojas,   longMm:altoMm,        perfil:pHojaCentro,detalle:`${hojas} hojas × ${altoMm}mm`},
+      {nombre:'Hoja Lateral',     cantidad:hojas,   longMm:altoMm,        perfil:pHojaLat,   detalle:`${hojas} hojas × ${altoMm}mm`},
+      {nombre:'Hoja Ruleta',      cantidad:hojas*2, longMm:anchoHojaMm,   perfil:pRuleta,    detalle:`${hojas} hojas × 2 × ${anchoHojaMm.toFixed(0)}mm`},
+    ];
+  }
+
+  // Renderizar
+  let totalCoste = 0;
+  let totalPiezas = 0;
+  let totalMl = 0;
+  let sinPerfil = false;
+
+  const html = piezas.map(p=>{
+    const precio = getPrecio(p.perfil);
+    const longMl = p.longMm/1000;
+    const coste = precio * longMl * p.cantidad;
+    totalCoste += coste;
+    totalPiezas += p.cantidad;
+    totalMl += longMl * p.cantidad;
+    if(!p.perfil) sinPerfil = true;
+
+    const precioStr = p.perfil
+      ? `${precio.toFixed(3)} €/ml`
+      : `<span style="color:var(--orange)">sin perfil asignado</span>`;
+    const costeStr = p.perfil
+      ? `<strong>${coste.toFixed(2)} €</strong>`
+      : `<span style="color:var(--orange)">—</span>`;
+
+    return `<div class="alum-row">
+      <div>
+        <div class="alum-nombre">${p.nombre}</div>
+        <div class="alum-det">${p.detalle}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:var(--text2)">${(longMl*p.cantidad*1000).toFixed(0)} ml &nbsp;${precioStr}</div>
+        <div style="font-size:16px;color:var(--accent)">${costeStr}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('alum-perfiles-list').innerHTML = html +
+    (sinPerfil ? '<div class="info-box" style="margin-top:10px;color:var(--orange)">⚠️ Asigna todos los perfiles en los selectores de arriba para ver el coste completo.</div>' : '');
+  document.getElementById('alum-coste-total').textContent = totalCoste.toFixed(2)+' €';
+  document.getElementById('alum-resultado').classList.remove('hidden');
+
+  // Guardar para hoja de corte
+  window._alumPiezas = piezas;
+  window._alumAcabado = acabado;
+}
+
+
+function alum_pasarCostes(){
+  const total = parseFloat(document.getElementById('alum-coste-total').textContent.replace(',','.'))||0;
+  document.getElementById('c-perfiles').value = total.toFixed(2);
+  c_calc();
+  alert(`✅ Coste de aluminio (${total.toFixed(2)} €) añadido a la hoja de costes.`);
+}
+
+// ════ HOJA DE CORTE AUTOMÁTICA ════
+function changeHcHojas(d){
+  const el = document.getElementById('hc-hojas');
+  el.value = Math.max(1, Math.min(4, (parseInt(el.value)||2)+d));
+}
+function hc_updateUI(){
+  const tipo = document.getElementById('hc-tipo').value;
+  document.getElementById('hc-junquillo-fg').style.display = tipo === 'abatible' ? 'block' : 'none';
+}
+function hc_generar(){
+  const tipo = document.getElementById('hc-tipo').value;
+  const anchoMm = parseFloat(document.getElementById('hc-ancho').value)||0;
+  const altoMm = parseFloat(document.getElementById('hc-alto').value)||0;
+  const hojas = parseInt(document.getElementById('hc-hojas').value)||2;
+  const junquillo = document.getElementById('hc-junquillo').value;
+  if(!anchoMm||!altoMm){alert('Introduce ancho y alto.');return;}
+
+  cortePiezas = [];
+  if(tipo === 'abatible'){
+    const anchoHojaMm = Math.round(anchoMm / hojas);
+    const nomHoja = junquillo==='junquillo' ? 'Hoja con Junquillo' : 'Hoja sin Junquillo';
+    // MARCO: 2 al alto + 2 al ancho
+    cortePiezas.push({ref:'Marco (alto)', long:altoMm, cant:2, ang:'90', id:Date.now()+1});
+    cortePiezas.push({ref:'Marco (ancho)', long:anchoMm, cant:2, ang:'90', id:Date.now()+2});
+    // HOJAS: 2 al alto por hoja + 2 al ancho por hoja (ancho/nºHojas)
+    cortePiezas.push({ref:nomHoja+' (alto)', long:altoMm, cant:hojas*2, ang:'90', id:Date.now()+3});
+    cortePiezas.push({ref:nomHoja+' (ancho)', long:anchoHojaMm, cant:hojas*2, ang:'90', id:Date.now()+4});
+    // JUNQUILLOS si aplica: misma cantidad que perfiles de hoja
+    if(junquillo==='junquillo'){
+      cortePiezas.push({ref:'Junquillo (alto)', long:altoMm, cant:hojas*2, ang:'90', id:Date.now()+5});
+      cortePiezas.push({ref:'Junquillo (ancho)', long:anchoHojaMm, cant:hojas*2, ang:'90', id:Date.now()+6});
+    }
+    // INVERSOR: 1 al alto
+    cortePiezas.push({ref:'Inversor (alto)', long:altoMm, cant:1, ang:'90', id:Date.now()+7});
+  } else {
+    cortePiezas.push({ref:'Marco Lateral (alto)', long:altoMm, cant:2, ang:'90', id:Date.now()+1});
+    cortePiezas.push({ref:'Guía Inferior (ancho)', long:anchoMm, cant:1, ang:'90', id:Date.now()+2});
+    cortePiezas.push({ref:'Guía Superior (ancho)', long:anchoMm, cant:1, ang:'90', id:Date.now()+3});
+    cortePiezas.push({ref:'Hoja Centro (alto)', long:altoMm, cant:hojas, ang:'90', id:Date.now()+4});
+    cortePiezas.push({ref:'Hoja Lateral (alto)', long:altoMm, cant:hojas, ang:'90', id:Date.now()+5});
+    cortePiezas.push({ref:'Hoja Ruleta (ancho)', long:anchoMm, cant:hojas*2, ang:'90', id:Date.now()+6});
+  }
+  co_render();
+  document.getElementById('co-resultado').classList.add('hidden');
+}
+
+// ════ HOJA DE CORTE MANUAL ════
+function co_add(){
+  const ref  = document.getElementById('co-ref').value||'Perfil';
+  const long = parseInt(document.getElementById('co-long').value)||0;
+  const cant = parseInt(document.getElementById('co-cant').value)||1;
+  const ang  = document.getElementById('co-ang').value;
+  if(!long){alert('Introduce longitud.');return;}
+  cortePiezas.push({ref,long,cant,ang,id:Date.now()});
+  co_render();
+  guardar();
+}
+function co_render(){
+  const tb = document.getElementById('co-tbody');
+  if(!cortePiezas.length){tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Añade piezas o genera automáticamente</td></tr>';return;}
+  tb.innerHTML = cortePiezas.map(p=>`<tr>
+    <td>${p.ref}</td>
+    <td style="font-family:'DM Mono',monospace">${p.long}mm</td>
+    <td>${p.cant}</td>
+    <td>${p.ang}°</td>
+    <td style="color:var(--accent);font-weight:600">${(p.long*p.cant).toLocaleString()}mm</td>
+    <td><button class="btn btn-red btn-sm" onclick="co_del(${p.id})">✕</button></td>
+  </tr>`).join('');
+}
+function co_del(id){cortePiezas=cortePiezas.filter(p=>p.id!==id);co_render();guardar();}
+function co_calc(){
+  if(!cortePiezas.length){alert('Añade piezas.');return;}
+  const blong = parseInt(document.getElementById('co-blong').value)||6000;
+  const kerf  = parseInt(document.getElementById('co-kerf').value)||3;
+  let piezas = [];
+  cortePiezas.forEach(p=>{for(let i=0;i<p.cant;i++) piezas.push({long:p.long+kerf,ref:p.ref,orig:p.long});});
+  piezas.sort((a,b)=>b.long-a.long);
+  let barras=[];
+  piezas.forEach(pieza=>{
+    let placed=false;
+    for(let b of barras){if(b.rest>=pieza.long){b.piezas.push(pieza);b.rest-=pieza.long;placed=true;break;}}
+    if(!placed) barras.push({piezas:[pieza],rest:blong-pieza.long});
+  });
+  const usados = barras.reduce((s,b)=>s+(blong-b.rest),0);
+  const total  = barras.length*blong;
+  const efic   = (usados/total*100).toFixed(1);
+  document.getElementById('co-res').innerHTML=`
+    <div style="display:grid;gap:8px">
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span>Barras necesarias</span><span style="font-family:'Playfair Display',serif;font-size:22px;color:var(--accent)">${barras.length} uds</span></div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span>Eficiencia</span><span style="color:var(--green)">${efic}%</span></div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Merma total</span><span style="color:var(--text2)">${total-usados}mm</span></div>
+    </div>`;
+  const COLORS_BAR=['#1a5fa8','#0d8a5c','#d47000','#6d28d9','#c93030','#0891b2','#be185d','#78716c'];
+  document.getElementById('co-vis').innerHTML = barras.map((b,i)=>{
+    const segs = b.piezas.map((p,j)=>{
+      const pct=(p.long/blong*100).toFixed(1);
+      const col = COLORS_BAR[j%COLORS_BAR.length];
+      return `<div style="height:26px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;background:${col};width:${pct}%;min-width:26px" title="${p.ref}: ${p.orig}mm">${p.orig}</div>`;
+    }).join('');
+    const rp=(b.rest/blong*100).toFixed(1);
+    const rs=b.rest>0?`<div style="height:26px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text3);background:var(--bg3);width:${rp}%;min-width:20px">${b.rest}</div>`:'';
+    return `<div style="background:var(--bg);border-radius:var(--r-sm);padding:12px;margin-bottom:10px;border-left:3px solid var(--accent);border:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px">
+        <span style="font-weight:700">Barra ${i+1}</span>
+        <span style="color:var(--accent)">${blong-b.rest}mm usados</span>
+        <span style="color:var(--text2)">${b.rest}mm merma</span>
+      </div>
+      <div style="display:flex;gap:3px;flex-wrap:wrap">${segs}${rs}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('co-resultado').classList.remove('hidden');
+  document.getElementById('co-resultado').scrollIntoView({behavior:'smooth'});
+}
+
+// ════ COSTES ════
+function changeMulti(d){
+  const el = document.getElementById('c-multi');
+  el.value = Math.max(1, Math.round((parseFloat(el.value)+d)*4)/4).toFixed(2);
+  c_calc();
+}
+function c_calc(){
+  const perfiles = parseFloat(document.getElementById('c-perfiles').value)||0;
+  const herrajes = parseFloat(document.getElementById('c-herrajes').value)||0;
+  const vidrio   = parseFloat(document.getElementById('c-vidrio').value)||0;
+  const consum   = parseFloat(document.getElementById('c-consumibles').value)||0;
+  const hfab     = parseFloat(document.getElementById('c-hfab').value)||0;
+  const efab     = parseFloat(document.getElementById('c-efab').value)||18;
+  const hinst    = parseFloat(document.getElementById('c-hinst').value)||0;
+  const einst    = parseFloat(document.getElementById('c-einst').value)||22;
+  const gasolina = parseFloat(document.getElementById('c-gasolina').value)||0;
+  const otros    = parseFloat(document.getElementById('c-otros').value)||0;
+  const matTotal = perfiles+herrajes+vidrio+consum;
+  const moFab    = hfab*efab;
+  const moInst   = hinst*einst;
+  const moTotal  = moFab+moInst;
+  const otrosTotal = gasolina+otros;
+  const costeTotal = matTotal+moTotal+otrosTotal;
+  const venta    = parseFloat(document.getElementById('c-venta').value)||0;
+  const beneficio = venta - costeTotal;
+  const margen   = venta>0 ? (beneficio/venta*100) : 0;
+
+  document.getElementById('c-res-venta').textContent = venta.toLocaleString('es-ES')+' €';
+  document.getElementById('c-res-coste').textContent = costeTotal.toFixed(2)+' €';
+  document.getElementById('c-res-ben').textContent   = beneficio.toFixed(2)+' €';
+  document.getElementById('c-res-ben').style.color   = beneficio>=0?'var(--green)':'var(--red)';
+  document.getElementById('donut-pct').textContent   = margen.toFixed(1)+'%';
+  document.getElementById('donut-pct').style.color   = margen>=30?'var(--green)':margen>=15?'var(--orange)':'var(--red)';
+  const circ = 345;
+  const offset = circ - (Math.max(0,Math.min(100,margen))/100)*circ;
+  const dc = document.getElementById('donut-circle');
+  dc.setAttribute('stroke-dashoffset', offset);
+  dc.setAttribute('stroke', margen>=30?'var(--green)':margen>=15?'var(--orange)':'var(--red)');
+
+  const partidas = [
+    {label:'Perfiles', val:perfiles, color:'var(--accent)'},
+    {label:'Herrajes', val:herrajes, color:'#0d8a5c'},
+    {label:'Vidrio', val:vidrio, color:'#0891b2'},
+    {label:'Consumibles', val:consum, color:'#6d28d9'},
+    {label:'MO Fabricación', val:moFab, color:'var(--green)'},
+    {label:'MO Instalación', val:moInst, color:'#10a870'},
+    {label:'Desplazamiento', val:gasolina, color:'var(--orange)'},
+    {label:'Otros', val:otros, color:'#78716c'},
+  ].filter(p=>p.val>0);
+  const maxVal = Math.max(...partidas.map(p=>p.val), 1);
+  document.getElementById('c-barras').innerHTML = partidas.map(p=>`
+    <div class="bar-row">
+      <div class="bar-label">${p.label}</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${(p.val/maxVal*100).toFixed(1)}%;background:${p.color}">${p.val.toFixed(0)}€</div>
+      </div>
+      <div class="bar-val">${venta>0?(p.val/venta*100).toFixed(1)+'%':'—'}</div>
+    </div>`).join('');
+
+  document.getElementById('c-hoja').innerHTML = [
+    {cat:'MATERIALES', items:[['Perfiles de aluminio',perfiles],['Herrajes y accesorios',herrajes],['Vidrio',vidrio],['Consumibles',consum]]},
+    {cat:'MANO DE OBRA', items:[[`Fabricación taller (${hfab}h × ${efab}€/h)`,moFab],[`Instalación (${hinst}h × ${einst}€/h)`,moInst]]},
+    {cat:'OTROS GASTOS', items:[['Gasolina / Desplazamiento',gasolina],['Otros gastos',otros]]},
+  ].map(sec=>`
+    <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin:14px 0 6px">${sec.cat}</div>
+    ${sec.items.filter(i=>i[1]>0).map(i=>`
+      <div class="cost-row"><span>${i[0]}</span><span style="font-family:'Playfair Display',serif;font-size:15px">${i[1].toFixed(2)} €</span></div>
+    `).join('')}
+  `).join('')+`
+    <div class="cost-row" style="border-top:2px solid var(--border2);margin-top:8px;padding-top:12px">
+      <span style="font-size:15px;font-weight:700">COSTE TOTAL</span>
+      <span style="font-family:'Playfair Display',serif;font-size:20px;color:var(--red)">${costeTotal.toFixed(2)} €</span>
+    </div>
+    ${venta>0?`
+    <div class="cost-row">
+      <span style="font-size:15px;font-weight:700">PRECIO VENTA</span>
+      <span style="font-family:'Playfair Display',serif;font-size:20px;color:var(--accent)">${venta.toFixed(2)} €</span>
+    </div>
+    <div class="cost-row">
+      <span style="font-size:15px;font-weight:700">BENEFICIO NETO</span>
+      <span style="font-family:'Playfair Display',serif;font-size:20px;color:${beneficio>=0?'var(--green)':'var(--red)'}">${beneficio.toFixed(2)} €  <span style="font-size:13px">(${margen.toFixed(1)}%)</span></span>
+    </div>`:''}
+  `;
+  updateDash();
+}
+function c_sugerirPrecio(){
+  const perfiles=parseFloat(document.getElementById('c-perfiles').value)||0;
+  const herrajes=parseFloat(document.getElementById('c-herrajes').value)||0;
+  const vidrio=parseFloat(document.getElementById('c-vidrio').value)||0;
+  const consum=parseFloat(document.getElementById('c-consumibles').value)||0;
+  const multi=parseFloat(document.getElementById('c-multi').value)||2;
+  const hfab=parseFloat(document.getElementById('c-hfab').value)||0;
+  const efab=parseFloat(document.getElementById('c-efab').value)||18;
+  const hinst=parseFloat(document.getElementById('c-hinst').value)||0;
+  const einst=parseFloat(document.getElementById('c-einst').value)||22;
+  const gasolina=parseFloat(document.getElementById('c-gasolina').value)||0;
+  const otros=parseFloat(document.getElementById('c-otros').value)||0;
+  const matTotal=perfiles+herrajes+vidrio+consum;
+  const moTotal=hfab*efab+hinst*einst;
+  const otrosTotal=gasolina+otros;
+  const sugerido=matTotal*multi+moTotal+otrosTotal;
+  const coste=matTotal+moTotal+otrosTotal;
+  const beneficio=sugerido-coste;
+  const margen=sugerido>0?(beneficio/sugerido*100):0;
+  document.getElementById('c-venta').value=sugerido.toFixed(2);
+  document.getElementById('c-sugerido-box').classList.remove('hidden');
+  document.getElementById('c-sugerido-content').innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+      <div style="text-align:center;background:var(--bg);padding:16px;border-radius:var(--r-sm);border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Materiales × ${multi}</div>
+        <div style="font-family:'Playfair Display',serif;font-size:24px;color:var(--accent)">${(matTotal*multi).toFixed(2)}€</div>
+      </div>
+      <div style="text-align:center;background:var(--bg);padding:16px;border-radius:var(--r-sm);border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">+ MO + Otros</div>
+        <div style="font-family:'Playfair Display',serif;font-size:24px;color:var(--accent)">${(moTotal+otrosTotal).toFixed(2)}€</div>
+      </div>
+      <div style="text-align:center;background:var(--accent3);padding:16px;border-radius:var(--r-sm);border:1px solid rgba(26,95,168,0.2)">
+        <div style="font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">= Precio Sugerido</div>
+        <div style="font-family:'Playfair Display',serif;font-size:24px;color:var(--accent)">${sugerido.toFixed(2)}€</div>
+      </div>
+    </div>
+    <div style="margin-top:14px;background:var(--greenbg);border:1px solid rgba(13,138,92,.2);border-radius:var(--r-sm);padding:14px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:14px">Beneficio estimado:</span>
+      <span style="font-family:'Playfair Display',serif;font-size:22px;color:var(--green)">${beneficio.toFixed(2)}€ · ${margen.toFixed(1)}%</span>
+    </div>`;
+  c_calc();
+}
+function c_exportar(){
+  const nombre=document.getElementById('c-nombre').value||'Proyecto';
+  const cliente=document.getElementById('c-cliente').value||'—';
+  const win=window.open('','_blank');
+  win.document.write(`<html><head><title>Hoja Costes — ${nombre}</title>
+  <style>body{font-family:Arial,sans-serif;padding:30px;max-width:700px;margin:0 auto}
+  h1{font-size:26px;color:#1a5fa8}h2{font-size:13px;color:#666;font-weight:normal;margin-bottom:20px}
+  .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee;font-size:13px}
+  </style></head><body>
+  <h1>Hoja de Costes — ${nombre}</h1><h2>Cliente: ${cliente} · ${new Date().toLocaleDateString('es-ES')}</h2>
+  ${document.getElementById('c-hoja').innerHTML}</body></html>`);
+  win.document.close(); win.print();
+}
+
+// ════ PARSER TEXTO TARIFA ════
+function txt_parse(){
+  const texto = document.getElementById('txt-tarifa').value.trim();
+  const fab = document.getElementById('txt-fab').value;
+  const dto = parseFloat(document.getElementById('txt-dto').value)||0;
+  if(!texto){ alert('Pega el texto de la tarifa.'); return; }
+
+  const ACABADOS = ['Blanco','Maderas 1','Maderas 2','Básico','No Básico','Especial','Adapta'];
+  const lines = texto.split('\n').map(l=>l.trim()).filter(Boolean);
+  let perfilesNuevos = [];
+  let perfilActual = null;
+
+  for(const line of lines){
+    // Detectar línea de perfil: empieza con número o contiene referencia
+    const esRef = /^\d{5,}/.test(line) || (/[A-Z]{2,}/.test(line) && !ACABADOS.some(a=>line.startsWith(a)));
+    const esCabecera = line.toLowerCase().includes('acabado') && line.toLowerCase().includes('precio');
+    if(esCabecera) continue;
+
+    // Intentar parsear línea de precio: "Acabado Precio €"
+    const precioMatch = line.match(/^([^\d]+?)\s+([\d.,]+)\s*€?$/);
+    if(precioMatch && perfilActual){
+      const acabNom = precioMatch[1].trim();
+      const precioStr = precioMatch[2].replace(',','.');
+      const precio = parseFloat(precioStr);
+      if(!isNaN(precio) && ACABADOS.includes(acabNom)){
+        if(!perfilActual.precios) perfilActual.precios = {};
+        perfilActual.precios[acabNom] = precio;
+        continue;
+      }
+    }
+
+    // Intentar parsear línea combinada: "Acabado NombrePerfil precio €"
+    // O detectar nuevo perfil
+    if(esRef || (!precioMatch && perfilActual === null)){
+      // Guardar perfil anterior
+      if(perfilActual && Object.keys(perfilActual.precios||{}).length > 0) perfilesNuevos.push(perfilActual);
+      // Extraer ref y desc
+      const partes = line.split(/\s+/);
+      const ref = partes[0];
+      const desc = partes.slice(1).join(' ');
+      perfilActual = {fab, ref, desc: desc||ref, precios:{}, dto, id:Date.now()+Math.random()};
+    }
+  }
+  if(perfilActual && Object.keys(perfilActual.precios||{}).length > 0) perfilesNuevos.push(perfilActual);
+
+  if(!perfilesNuevos.length){
+    document.getElementById('txt-resultado').innerHTML = `<div class="warn-box">⚠️ No se detectaron perfiles con precio. Revisa el formato. El formato esperado es:<br><code>REFERENCIA DESCRIPCION<br>Blanco 19,83 €<br>Maderas 1 33,03 €</code></div>`;
+    document.getElementById('txt-resultado').classList.remove('hidden');
+    return;
+  }
+
+  // Calcular precio neto (para el acabado de referencia "Blanco" o el primero)
+  perfilesNuevos.forEach(p=>{
+    const precioRef = p.precios['Blanco'] || Object.values(p.precios)[0] || 0;
+    p.precio = precioRef * (1 - dto/100);
+    p.precio_tarifa = precioRef;
+    p.ud = 'ml';
+  });
+
+  perfilesTarifa.push(...perfilesNuevos);
+  renderPerfilesTarifa();
+  guardar();
+
+  document.getElementById('txt-resultado').innerHTML = `
+    <div class="success-box">✅ Se importaron <strong>${perfilesNuevos.length} perfiles</strong> de ${fab}.<br>
+    ${perfilesNuevos.map(p=>`<span style="font-family:'DM Mono',monospace;font-size:11px">${p.ref}</span> ${p.desc}`).join(' · ')}
+    </div>
+    <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="showTab('tab-lista','tabs-perfiles',document.querySelector('.tab:nth-child(4)'))">👁 Ver Mi Tarifa</button></div>`;
+  document.getElementById('txt-resultado').classList.remove('hidden');
+  document.getElementById('txt-tarifa').value = '';
+}
+
+// ════ IA EXTRACCIÓN IMAGEN ════
+let iaImageBase64 = null;
+function ia_previewFile(e){
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    iaImageBase64 = ev.target.result;
+    document.getElementById('ia-img').src = ev.target.result;
+    document.getElementById('ia-preview').classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+}
+async function ia_extract(){
+  if(!iaImageBase64){alert('Sube una imagen primero.');return;}
+  const fab   = document.getElementById('ia-fab').value;
+  const dto   = parseFloat(document.getElementById('ia-dto').value)||0;
+  document.getElementById('ia-btn').disabled=true;
+  document.getElementById('ia-btn').textContent='Analizando...';
+  document.getElementById('ia-loading').classList.remove('hidden');
+  document.getElementById('ia-resultado').classList.add('hidden');
+  const base64Data = iaImageBase64.split(',')[1];
+  const mediaType  = iaImageBase64.split(';')[0].split(':')[1]||'image/jpeg';
+  const ACABADOS_STR = 'Blanco, Maderas 1, Maderas 2, Básico, No Básico, Especial, Adapta';
+  const prompt = `Eres un experto en tarifas de perfiles de aluminio. Analiza esta imagen del catálogo del fabricante "${fab}".
+Extrae TODOS los perfiles con sus precios por acabado.
+Los acabados posibles son: ${ACABADOS_STR}.
+Devuelve ÚNICAMENTE un JSON válido (sin markdown, sin texto extra):
+{
+  "fabricante": "${fab}",
+  "descuento": ${dto},
+  "perfiles": [
+    {
+      "ref": "referencia",
+      "desc": "descripción",
+      "precios": {"Blanco": 0.00, "Básico": 0.00},
+      "unidad": "ml"
+    }
+  ]
+}`;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:2000,
+        messages:[{role:'user',content:[
+          {type:'image',source:{type:'base64',media_type:mediaType,data:base64Data}},
+          {type:'text',text:prompt}
+        ]}]
+      })
+    });
+    const data = await res.json();
+    if(data.error) throw new Error(data.error.message);
+    const text = data.content.map(c=>c.text||'').join('');
+    let parsed;
+    try{ parsed = JSON.parse(text.replace(/```json|```/g,'').trim()); }
+    catch(e){ throw new Error('La IA no devolvió JSON válido.'); }
+
+    document.getElementById('ia-resultado').innerHTML = `
+      <div class="success-box" style="margin-bottom:16px">✅ Se detectaron ${parsed.perfiles?.length||0} perfiles de ${parsed.fabricante}</div>
+      <table><thead><tr><th>Ref</th><th>Descripción</th><th>Precios por Acabado</th><th></th></tr></thead>
+      <tbody>${(parsed.perfiles||[]).map((p,i)=>`<tr>
+        <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--accent)">${p.ref}</td>
+        <td style="font-size:12px">${p.desc}</td>
+        <td style="font-size:11px">${Object.entries(p.precios||{}).map(([k,v])=>`${k}: ${v}€`).join(' · ')}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="ia_addOne(${i},${JSON.stringify(parsed).replace(/"/g,'&quot;')})">+</button></td>
+      </tr>`).join('')}</tbody></table>
+      <button class="btn btn-green" style="margin-top:14px" onclick="ia_addAll(${JSON.stringify(parsed).replace(/"/g,'&quot;')})">✅ Añadir Todos</button>`;
+    document.getElementById('ia-resultado').classList.remove('hidden');
+  }catch(err){
+    document.getElementById('ia-resultado').innerHTML = `<div style="background:var(--redbg);border:1px solid rgba(201,48,48,.2);border-radius:var(--r-sm);padding:14px;color:var(--red)">❌ Error: ${err.message}</div>`;
+    document.getElementById('ia-resultado').classList.remove('hidden');
+  }finally{
+    document.getElementById('ia-btn').disabled=false;
+    document.getElementById('ia-btn').textContent='🤖 Extraer Precios con IA';
+    document.getElementById('ia-loading').classList.add('hidden');
+  }
+}
+function ia_addAll(parsed){
+  const dto = parseFloat(document.getElementById('ia-dto').value)||0;
+  (parsed.perfiles||[]).forEach(p=>{
+    const precioRef = p.precios && (p.precios['Blanco']||Object.values(p.precios)[0])||0;
+    perfilesTarifa.push({
+      fab:parsed.fabricante, ref:p.ref, desc:p.desc,
+      precios:p.precios||{}, precio: precioRef*(1-dto/100),
+      precio_tarifa:precioRef, ud:p.unidad||'ml', dto, id:Date.now()+Math.random()
+    });
+  });
+  renderPerfilesTarifa();
+  guardar();
+}
+function ia_addOne(idx, parsed){
+  const dto = parseFloat(document.getElementById('ia-dto').value)||0;
+  const p = parsed.perfiles[idx];
+  const precioRef = p.precios && (p.precios['Blanco']||Object.values(p.precios)[0])||0;
+  perfilesTarifa.push({
+    fab:parsed.fabricante, ref:p.ref, desc:p.desc,
+    precios:p.precios||{}, precio: precioRef*(1-dto/100),
+    precio_tarifa:precioRef, ud:p.unidad||'ml', dto, id:Date.now()+Math.random()
+  });
+  renderPerfilesTarifa();
+  alert('Perfil añadido a tu tarifa.');
+}
+
+// ════ PERFILES MANUAL ════
+function pm_add(){
+  const fab   = document.getElementById('pm-fab').value;
+  const ref   = document.getElementById('pm-ref').value||'Sin ref';
+  const desc  = document.getElementById('pm-desc').value||'Perfil';
+  const dto   = parseFloat(document.getElementById('pm-dto').value)||0;
+  const precios = {};
+  [['Blanco','pm-p-blanco'],['Maderas 1','pm-p-mad1'],['Maderas 2','pm-p-mad2'],
+   ['Básico','pm-p-bas'],['No Básico','pm-p-nobas'],['Especial','pm-p-esp'],['Adapta','pm-p-adapta']]
+  .forEach(([nombre, id])=>{
+    const v = parseFloat(document.getElementById(id).value);
+    if(v > 0) precios[nombre] = v;
+  });
+  if(!Object.keys(precios).length){alert('Introduce al menos un precio.');return;}
+  const precioRef = precios['Blanco']||Object.values(precios)[0]||0;
+  perfilesTarifa.push({fab,ref,desc,precios,precio:precioRef*(1-dto/100),precio_tarifa:precioRef,ud:'ml',dto,id:Date.now()});
+  ['pm-ref','pm-desc','pm-p-blanco','pm-p-mad1','pm-p-mad2','pm-p-bas','pm-p-nobas','pm-p-esp','pm-p-adapta'].forEach(id=>{document.getElementById(id).value='';});
+  renderPerfilesTarifa();
+  guardar();
+}
+function poblarSelectoresPerfiles(){
+  const opts = '<option value="">— selecciona —</option>' +
+    perfilesTarifa.map(p=>`<option value="${p.id}">${p.ref} — ${p.desc}</option>`).join('');
+  const optsOpt = '<option value="">— opcional —</option>' +
+    perfilesTarifa.map(p=>`<option value="${p.id}">${p.ref} — ${p.desc}</option>`).join('');
+  // Restaurar selecciones guardadas
+  const saved = JSON.parse(localStorage.getItem('ac_sel_perfiles')||'{}');
+  ['sel-marco','sel-hoja','sel-inversor',
+   'sel-c-marcolat','sel-c-guiainf','sel-c-guiasup',
+   'sel-c-hojacentro','sel-c-hojalat','sel-c-ruleta'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.innerHTML = opts;
+    if(saved[id]) el.value = saved[id];
+  });
+  const junqEl = document.getElementById('sel-junquillo');
+  if(junqEl){ junqEl.innerHTML = optsOpt; if(saved['sel-junquillo']) junqEl.value = saved['sel-junquillo']; }
+
+  // Guardar selecciones cuando cambien
+  ['sel-marco','sel-hoja','sel-junquillo','sel-inversor',
+   'sel-c-marcolat','sel-c-guiainf','sel-c-guiasup',
+   'sel-c-hojacentro','sel-c-hojalat','sel-c-ruleta'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('change', ()=>{
+      const s = JSON.parse(localStorage.getItem('ac_sel_perfiles')||'{}');
+      s[id] = el.value;
+      localStorage.setItem('ac_sel_perfiles', JSON.stringify(s));
+    });
+  });
+}
+
+function renderPerfilesTarifa(){
+  const lista = document.getElementById('perfiles-lista');
+  if(!perfilesTarifa.length){
+    lista.innerHTML='<p class="ts" style="text-align:center;padding:20px">Sin perfiles cargados.</p>';
+    return;
+  }
+  const byFab = {};
+  perfilesTarifa.forEach(p=>{if(!byFab[p.fab]) byFab[p.fab]=[];byFab[p.fab].push(p);});
+  const ACAB_ORDEN = ['Blanco','Básico','No Básico','Especial','Maderas 1','Maderas 2','Adapta'];
+  lista.innerHTML = Object.entries(byFab).map(([fab,prfs])=>`
+    <div style="margin-bottom:24px">
+      <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">📦 ${fab} — ${prfs.length} perfiles</div>
+      ${prfs.map(p=>`
+        <div class="perfil-row">
+          <div style="flex:1;min-width:0">
+            <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--accent);font-weight:600">${p.ref}</div>
+            <div style="font-size:13px;font-weight:500">${p.desc}</div>
+            ${p.precios && Object.keys(p.precios).length > 1 ? `<div style="font-size:11px;color:var(--text2);margin-top:3px">${ACAB_ORDEN.filter(a=>p.precios[a]).map(a=>`${a}: <strong>${p.precios[a].toFixed(2)}€</strong>`).join(' · ')}</div>` : ''}
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-family:'Playfair Display',serif;font-size:20px;color:var(--green)">${p.precio.toFixed(2)}€</div>
+            <div style="font-size:11px;color:var(--text2)">/${p.ud}${p.dto>0?' (dto '+p.dto+'%)':''}</div>
+          </div>
+          <button class="btn btn-red btn-sm" onclick="perf_del(${p.id})">✕</button>
+        </div>`).join('')}
+    </div>`).join('');
+}
+function perf_del(id){ perfilesTarifa=perfilesTarifa.filter(p=>p.id!==id); renderPerfilesTarifa(); guardar(); }
+
+// ════ HISTORIAL ════
+function h_add(){
+  const cli = document.getElementById('h-cli').value;
+  const ref = document.getElementById('h-ref').value||('PRE-'+new Date().getFullYear()+'-'+String(historial.length+1).padStart(3,'0'));
+  const fecha = document.getElementById('h-fecha').value||new Date().toISOString().split('T')[0];
+  const total = parseFloat(document.getElementById('h-total-val').value)||0;
+  const estado = document.getElementById('h-estado').value;
+  const tipo = document.getElementById('h-tipo').value;
+  const notas = document.getElementById('h-notas').value;
+  if(!cli||!total){ alert('Introduce cliente y total.'); return; }
+  historial.push({cli,ref,fecha,total,estado,tipo,notas,id:Date.now()});
+  document.getElementById('h-cli').value='';
+  document.getElementById('h-total-val').value='';
+  document.getElementById('h-notas').value='';
+  renderHistorial();
+  updateDash();
+  guardar();
+}
+function h_setEstado(id, estado){
+  const h = historial.find(x=>x.id===id);
+  if(h){ h.estado=estado; renderHistorial(); updateDash(); guardar(); }
+}
+function h_del(id){ if(confirm('¿Eliminar?')){ historial=historial.filter(x=>x.id!==id); renderHistorial(); updateDash(); guardar(); } }
+function renderHistorial(){
+  const filtro = document.getElementById('h-filtro')?.value||'todos';
+  const lista = filtro==='todos' ? historial : historial.filter(h=>h.estado===filtro);
+  const total = historial.length;
+  const aceptados = historial.filter(h=>h.estado==='aceptado').length;
+  const pendientes = historial.filter(h=>h.estado==='pendiente').length;
+  const rechazados = historial.filter(h=>h.estado==='rechazado').length;
+  const facturado = historial.filter(h=>h.estado==='aceptado').reduce((s,h)=>s+h.total,0);
+  ['h-total','h-aceptados','h-pendientes','h-rechazados'].forEach((id,i)=>{
+    const el = document.getElementById(id);
+    if(el) el.textContent = [total,aceptados,pendientes,rechazados][i];
+  });
+  const hf = document.getElementById('h-total-fact');
+  if(hf) hf.textContent = facturado.toLocaleString('es-ES',{minimumFractionDigits:2})+ ' €';
+
+  // Mini barras por mes
+  const porMes = {};
+  historial.filter(h=>h.estado==='aceptado').forEach(h=>{
+    const mes = h.fecha.substring(0,7);
+    porMes[mes] = (porMes[mes]||0) + h.total;
+  });
+  const meses = Object.keys(porMes).sort().slice(-6);
+  const maxM = Math.max(...Object.values(porMes),1);
+  const chartEl = document.getElementById('h-chart-bars');
+  if(chartEl) chartEl.innerHTML = meses.length ? meses.map(m=>`
+    <div class="bar-row">
+      <div class="bar-label" style="font-family:'DM Mono',monospace">${m}</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${(porMes[m]/maxM*100).toFixed(1)}%;background:var(--green)">${porMes[m].toFixed(0)}€</div>
+      </div>
+    </div>`).join('') : '<p class="ts" style="text-align:center;padding:12px">Sin datos facturados</p>';
+
+  const listaEl = document.getElementById('historial-lista');
+  if(!lista.length){
+    listaEl.innerHTML='<p class="ts" style="text-align:center;padding:30px">Sin presupuestos en este filtro</p>';
+    return;
+  }
+  listaEl.innerHTML = [...lista].reverse().map(h=>`
+    <div class="hist-card">
+      <div style="flex:1;min-width:0">
+        <div class="hist-ref">${h.ref}</div>
+        <div class="hist-cli">${h.cli}</div>
+        <div style="font-size:12px;color:var(--text2)">${h.tipo} · ${h.fecha}</div>
+        ${h.notas?`<div style="font-size:12px;color:var(--text3);margin-top:2px">${h.notas}</div>`:''}
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="hist-total">${h.total.toLocaleString('es-ES',{minimumFractionDigits:2})} €</div>
+        <div style="margin-top:6px"><span class="hist-estado ${h.estado}">${h.estado}</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+        ${h.estado!=='aceptado'?`<button class="btn btn-green btn-sm" onclick="h_setEstado(${h.id},'aceptado')">✓ Aceptar</button>`:''}
+        ${h.estado!=='pendiente'?`<button class="btn btn-ghost btn-sm" onclick="h_setEstado(${h.id},'pendiente')">⏳ Pendiente</button>`:''}
+        <button class="btn btn-red btn-sm" onclick="h_del(${h.id})">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+// ════ PDF ════
+function pdf_renderPartidas(){
+  const lista = document.getElementById('pdf-partidas-lista');
+  if(!pdfPartidas.length){
+    lista.innerHTML='<p class="ts" style="text-align:center;padding:16px;font-size:13px">Añade partidas desde Visita Rápida o manualmente</p>';
+    return;
+  }
+  lista.innerHTML=`<table>
+    <thead><tr><th>#</th><th>Descripción</th><th>Uds</th><th>P.Unit</th><th>Total</th><th></th></tr></thead>
+    <tbody>${pdfPartidas.map((p,i)=>`<tr>
+      <td style="color:var(--text3)">${i+1}</td>
+      <td style="font-size:12px">${p.desc}</td>
+      <td>${p.uds}</td>
+      <td style="font-family:'DM Mono',monospace">${p.precio.toFixed(2)}€</td>
+      <td style="color:var(--accent);font-weight:700">${(p.precio*p.uds).toFixed(2)}€</td>
+      <td><button class="btn btn-red btn-sm" onclick="pdf_del(${i})">✕</button></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+function pdf_del(i){ pdfPartidas.splice(i,1); pdf_renderPartidas(); }
+function pdf_addPartida(){
+  const desc  = document.getElementById('pdf-desc').value;
+  const uds   = parseFloat(document.getElementById('pdf-uds').value)||1;
+  const precio= parseFloat(document.getElementById('pdf-precio').value)||0;
+  if(!desc||!precio){alert('Completa descripción y precio.');return;}
+  pdfPartidas.push({desc,uds,precio});
+  document.getElementById('pdf-desc').value='';
+  document.getElementById('pdf-precio').value='';
+  pdf_renderPartidas();
+}
+function pdf_gen(){
+  presCounter++;
+  if(!pdfPartidas.length){alert('Añade al menos una partida.');return;}
+  const emp  = document.getElementById('e-nom').value||'Carpintería de Aluminio AC';
+  const cif  = document.getElementById('e-cif').value||'';
+  const etel = document.getElementById('e-tel').value||'';
+  const edir = document.getElementById('e-dir').value||'';
+  const eema = document.getElementById('e-email').value||'';
+  const cli  = document.getElementById('cl-nom').value||'Cliente';
+  const cnif = document.getElementById('cl-nif').value||'';
+  const ctel = document.getElementById('cl-tel').value||'';
+  const cdir = document.getElementById('cl-dir').value||'';
+  const fec  = document.getElementById('cl-fec').value||'';
+  const val  = document.getElementById('cl-val').value||'';
+  const iva  = parseFloat(document.getElementById('cl-iva').value)||21;
+  const dto  = parseFloat(document.getElementById('cl-dto').value)||0;
+  const pago = document.getElementById('cl-pago').value||'';
+  const obs  = document.getElementById('cl-obs').value||'';
+  const ref  = 'PRE-'+new Date().getFullYear()+'-'+String(presCounter).padStart(3,'0');
+  const sub  = pdfPartidas.reduce((s,p)=>s+p.precio*p.uds,0);
+  const desc = sub*(dto/100);
+  const base = sub-desc;
+  const ivaAmt = base*(iva/100);
+  const total = base+ivaAmt;
+  document.getElementById('pdf-body').innerHTML=`
+    <div style="background:#1a5fa8;color:#fff;padding:28px 40px;border-radius:10px 10px 0 0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div class="pdf-co">${emp}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:4px">${edir}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.7)">${etel}${etel&&eema?' · ':''}${eema}</div>
+          ${cif?`<div style="font-size:12px;color:rgba(255,255,255,0.7)">CIF: ${cif}</div>`:''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:'Playfair Display',serif;font-size:28px;color:rgba(255,255,255,0.9)">${ref}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.7)">Fecha: ${fec}</div>
+          ${val?`<div style="font-size:12px;color:rgba(255,255,255,0.7)">Válido hasta: ${val}</div>`:''}
+        </div>
+      </div>
+    </div>
+    <div style="padding:28px 40px;background:#fff;color:#111;border-radius:0 0 10px 10px">
+      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:20px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+        <div><strong>CLIENTE:</strong> ${cli}</div>
+        <div><strong>NIF:</strong> ${cnif}</div>
+        <div><strong>TEL:</strong> ${ctel}</div>
+        <div><strong>DIRECCIÓN:</strong> ${cdir}</div>
+      </div>
+      <table class="pdf-tbl">
+        <thead><tr><th>#</th><th>DESCRIPCIÓN</th><th style="text-align:center">UDS</th><th style="text-align:right">P.UNIT</th><th style="text-align:right">TOTAL</th></tr></thead>
+        <tbody>${pdfPartidas.map((p,i)=>`<tr>
+          <td>${i+1}</td><td>${p.desc}</td>
+          <td style="text-align:center">${p.uds}</td>
+          <td style="text-align:right">${p.precio.toFixed(2)}€</td>
+          <td style="text-align:right;font-weight:700">${(p.precio*p.uds).toFixed(2)}€</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      <div class="pdf-total">
+        <div class="pdf-tr"><span>Subtotal</span><span>${sub.toFixed(2)} €</span></div>
+        ${dto>0?`<div class="pdf-tr"><span>Descuento (${dto}%)</span><span>-${desc.toFixed(2)} €</span></div>`:''}
+        <div class="pdf-tr"><span>Base imponible</span><span>${base.toFixed(2)} €</span></div>
+        <div class="pdf-tr"><span>IVA (${iva}%)</span><span>${ivaAmt.toFixed(2)} €</span></div>
+        <div class="pdf-tr fin"><span>TOTAL</span><span>${total.toFixed(2)} €</span></div>
+      </div>
+      ${pago?`<div style="margin-top:16px;background:#f8fafc;border-radius:6px;padding:12px;font-size:12px"><strong>Forma de pago:</strong> ${pago}</div>`:''}
+      ${obs?`<div style="margin-top:10px;background:#f8fafc;border-radius:6px;padding:12px;font-size:12px"><strong>Condiciones:</strong> ${obs}</div>`:''}
+      <div style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;text-align:center">
+        ${emp} · ${ref} · Presupuesto válido 30 días desde su fecha de emisión.
+      </div>
+    </div>`;
+  document.getElementById('pdf-preview-wrap').classList.remove('hidden');
+  document.getElementById('pdf-preview-wrap').scrollIntoView({behavior:'smooth'});
+  updateDash();
+}
+function guardarEnHistorial(){
+  const cli  = document.getElementById('cl-nom').value||'Cliente';
+  const iva  = parseFloat(document.getElementById('cl-iva').value)||21;
+  const dto  = parseFloat(document.getElementById('cl-dto').value)||0;
+  const fec  = document.getElementById('cl-fec').value||new Date().toISOString().split('T')[0];
+  const sub  = pdfPartidas.reduce((s,p)=>s+p.precio*p.uds,0);
+  const base = sub*(1-dto/100);
+  const total= base*(1+iva/100);
+  const ref  = 'PRE-'+new Date().getFullYear()+'-'+String(presCounter).padStart(3,'0');
+  historial.push({cli,ref,fecha:fec,total,estado:'pendiente',tipo:'Mixto',notas:'Generado desde PDF',id:Date.now()});
+  renderHistorial();
+  updateDash();
+  guardar();
+  alert('✅ Presupuesto guardado en el historial como "Pendiente".');
+  sp('historial');
+}
+
+// ════ DASHBOARD ════
+function updateDash(){
+  const total = historial.length + presCounter;
+  const aceptados = historial.filter(h=>h.estado==='aceptado').length;
+  const venta = historial.filter(h=>h.estado==='aceptado').reduce((s,h)=>s+h.total,0);
+  const margenItems = historial.filter(h=>h.estado==='aceptado' && h.margen);
+  document.getElementById('ds-pres').textContent = total;
+  document.getElementById('ds-aceptados').textContent = aceptados;
+  document.getElementById('ds-venta').textContent = venta > 0 ? venta.toLocaleString('es-ES',{maximumFractionDigits:0})+'€' : '0€';
+  document.getElementById('ds-margen').textContent = margenItems.length ? (margenItems.reduce((s,h)=>s+h.margen,0)/margenItems.length).toFixed(0)+'%' : '—';
+
+  // Últimos en dashboard
+  const ultimos = [...historial].reverse().slice(0,5);
+  document.getElementById('ds-tabla').innerHTML = ultimos.length ? `<div>${ultimos.map(h=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:13px;font-weight:600">${h.cli}</div>
+        <div style="font-size:11px;color:var(--text2);font-family:'DM Mono',monospace">${h.ref} · ${h.fecha}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:'Playfair Display',serif;font-size:17px;color:var(--accent)">${h.total.toFixed(0)}€</div>
+        <span class="hist-estado ${h.estado}">${h.estado}</span>
+      </div>
+    </div>`).join('')}</div>` : '<p class="ts" style="text-align:center;padding:20px">Sin proyectos aún</p>';
+}
+
+// ════ FIREBASE CONFIG UI ════
+function fbConfig_apply(){
+  const cfg={apiKey:document.getElementById("fb-apikey")?.value?.trim()||"",authDomain:document.getElementById("fb-authdomain")?.value?.trim()||"",projectId:document.getElementById("fb-projectid")?.value?.trim()||"",storageBucket:document.getElementById("fb-storage")?.value?.trim()||"",messagingSenderId:document.getElementById("fb-msgid")?.value?.trim()||"",appId:document.getElementById("fb-appid")?.value?.trim()||""};
+  if(!cfg.apiKey||!cfg.projectId){alert("Rellena API Key y Project ID.");return;}
+  localStorage.setItem("ac_fbconfig",JSON.stringify(cfg));
+  const r=document.getElementById("fb-conn-result");if(r)r.innerHTML='<span style="color:var(--green)">✓ Guardado. Recarga para activar.</span>';
+  setTimeout(()=>{if(confirm("¿Recargar ahora?"))location.reload();},400);
+}
+</script>
+<div style="position:fixed;bottom:16px;left:16px;z-index:999">
+  <button onclick="if(confirm('¿Borrar TODOS los datos guardados? Esta acción no se puede deshacer.')){Object.values({a:'ac_perfiles_v2',b:'ac_historial_v2',c:'ac_visita_v2',d:'ac_corte_v2',e:'ac_pdfpartidas_v2',f:'ac_counter_v2',g:'ac_empresa_v2',h:'ac_costes_v2'}).forEach(k=>localStorage.removeItem(k));location.reload();}"
+    style="background:rgba(201,48,48,0.08);border:1px solid rgba(201,48,48,0.2);color:#c93030;padding:5px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-family:sans-serif">🗑️ Borrar todo</button>
+</div>
+</body>
+</html>

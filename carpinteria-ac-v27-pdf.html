@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Carpintería de Aluminio AC</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+function entrar(p){
+  var el=document.getElementById('portal');
+  if(el)el.style.display='none';
+  try{sessionStorage.setItem('portal',p);}catch(e){}
+  var oficinaIds=['n-calc','n-tarifas','n-historial','n-hojatrabajo'];
+  var tallerIds=['n-corte'];
+  oficinaIds.forEach(function(id){var b=document.getElementById(id);if(b)b.style.display=(p==='taller')?'none':'';});
+  tallerIds.forEach(function(id){var b=document.getElementById(id);if(b)b.style.display=(p==='oficina')?'none':'';});
+  var badge=document.getElementById('portal-badge');
+  if(badge){badge.textContent=(p==='oficina')?'OFICINA':'TALLER';badge.style.display='inline-block';badge.style.background=(p==='oficina')?'rgba(59,130,246,.18)':'rgba(230,168,23,.18)';badge.style.color=(p==='oficina')?'#60a5fa':'#e6a817';}
+  if(typeof sp==='function'){ sp(p==='taller'?'corte':'calc'); }
+}
+function cambiarPortal(){
+  try{sessionStorage.removeItem('portal');}catch(e){}
+  var el=document.getElementById('portal');
+  if(el)el.style.display='flex';
+}
+</script>
+<style>
+:root{
+  --bg1:#0d1117;--bg2:#161c24;--bg3:#1b222c;--bg4:#232b36;
+  --border:#232b36;--border2:#2d3644;
+  --text:#e2e8f0;--text2:#8b96a5;
+  --accent:#e6a817;--accent2:#c8860a;
+  --green:#1a9e6f;--green2:#22c55e;--red:#ef4444;--red2:#f87171;
+  --blue:#3b82f6;
+  --r:14px;--rs:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg1);color:var(--text);font-family:'DM Sans',sans-serif;overflow-x:hidden}
+h1,h2,h3{font-family:'Playfair Display',serif}
+input,select,textarea,button{font-family:'DM Sans',sans-serif;font-size:14px}
+input,select,textarea{
+  width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);
+  padding:10px 12px;color:var(--text);outline:none;transition:.15s;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+textarea{min-height:70px;resize:vertical}
+label{display:block;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;font-weight:600}
+.fg{margin-bottom:14px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  background:var(--bg3);border:1px solid var(--border2);color:var(--text);
+  padding:10px 18px;border-radius:var(--rs);cursor:pointer;font-weight:600;transition:.15s;
+}
+.btn:hover{border-color:var(--accent)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#1a1a1a}
+.btn-primary:hover{background:var(--accent2)}
+.btn-ghost{background:transparent}
+.btn-red{background:var(--red);border-color:var(--red);color:#fff}
+.btn-sm{padding:6px 12px;font-size:12px}
+.btn-block{width:100%}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px}
+.ct{font-family:'Playfair Display',serif;font-size:17px;font-weight:700;margin-bottom:14px;color:var(--text)}
+.ts{color:var(--text2);font-size:13px}
+.hidden{display:none !important}
+.sep{height:1px;background:var(--border);margin:16px 0}
+.mono{font-family:'DM Mono',monospace}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 10px;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border2)}
+td{padding:8px 10px;border-bottom:1px solid var(--border)}
+.pg-title{font-size:26px;font-weight:800;margin-bottom:4px}
+.pg-sub{color:var(--text2);font-size:13px;margin-bottom:20px}
+.page{display:none}
+.page.active{display:block}
+header{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:16px 24px;border-bottom:1px solid var(--border);background:var(--bg2);
+}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:18px}
+.logo-txt{font-family:'Playfair Display',serif;font-weight:800;font-size:16px;line-height:1.1}
+.logo-sub{font-size:10px;color:var(--text2);letter-spacing:1px}
+nav{display:flex;gap:6px;padding:10px 24px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.nb{
+  background:transparent;border:1px solid transparent;color:var(--text2);
+  padding:8px 14px;border-radius:20px;cursor:pointer;font-size:13px;font-weight:600;transition:.15s;
+}
+.nb:hover{color:var(--text);background:var(--bg3)}
+.nb.active{background:var(--accent);color:#1a1a1a}
+main{padding:24px;max-width:1200px;margin:0 auto}
+.wiz-step{display:none}
+.wiz-step.active{display:block}
+.wiz-opt{
+  background:var(--bg3);border:2px solid var(--border2);border-radius:var(--rs);
+  padding:16px;cursor:pointer;text-align:center;transition:.15s;
+}
+.wiz-opt:hover{border-color:var(--accent)}
+.wiz-opt.selected{border-color:var(--accent);background:rgba(230,168,23,.1)}
+.wiz-dots{display:flex;gap:6px;justify-content:center;margin-bottom:20px}
+.wiz-dot{width:8px;height:8px;border-radius:50%;background:var(--border2)}
+.wiz-dot.active{background:var(--accent);width:20px;border-radius:4px}
+.wiz-dot.done{background:var(--green2)}
+.bdg{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700}
+.bdg-g{background:rgba(34,197,94,.15);color:var(--green2)}
+.bdg-o{background:rgba(230,168,23,.15);color:var(--accent)}
+.bdg-r{background:rgba(239,68,68,.15);color:var(--red2)}
+.bdg-b{background:rgba(59,130,246,.15);color:var(--blue)}
+.portal-card{background:#161c24;border:2px solid #1e293b;border-radius:16px;padding:32px 20px;text-align:center;cursor:pointer;transition:.2s}
+.portal-card:hover{border-color:#e6a817;background:#1a2333}
+</style>
+</head>
+<body>
+
+<!-- PORTAL LOGIN -->
+<div id="portal" style="position:fixed;inset:0;z-index:9999;background:#0d1117;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px">
+  <div style="width:72px;height:72px;background:linear-gradient(135deg,#e6a817,#c8860a);border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:34px;margin-bottom:18px">AC</div>
+  <div style="font-family:'Playfair Display',serif;font-size:24px;font-weight:800;color:#e2e8f0;text-align:center;line-height:1.2">CARPINTERÍA DE<br><span style="color:#e6a817">ALUMINIO AC</span></div>
+  <div style="font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin:10px 0 36px">Sistema de Gestión</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;width:100%;max-width:440px">
+    <div class="portal-card" onclick="entrar('oficina')">
+      <div style="font-size:44px;margin-bottom:10px">💼</div>
+      <div style="font-size:16px;font-weight:800;color:#e2e8f0;letter-spacing:1px">OFICINA</div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Presupuestos · Tarifas<br>Historial · Hoja de Trabajo</div>
+    </div>
+    <div class="portal-card" onclick="entrar('taller')">
+      <div style="font-size:44px;margin-bottom:10px">⚙️</div>
+      <div style="font-size:16px;font-weight:800;color:#e2e8f0;letter-spacing:1px">TALLER</div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Hoja de Corte</div>
+    </div>
+  </div>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">AC</div>
+    <div>
+      <div class="logo-txt">Carpintería de<br>Aluminio AC</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span id="portal-badge" onclick="cambiarPortal()" style="display:none;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer"></span>
+    <div id="hdate" style="font-size:12px;color:var(--text2)"></div>
+  </div>
+</header>
+
+<nav>
+  <button class="nb" onclick="sp('calc')" id="n-calc">Presupuesto</button>
+  <button class="nb" onclick="sp('tarifas')" id="n-tarifas">Tarifas</button>
+  <button class="nb" onclick="sp('historial')" id="n-historial">Historial</button>
+  <button class="nb" onclick="sp('hojatrabajo')" id="n-hojatrabajo">Hoja de Trabajo</button>
+  <button class="nb" onclick="sp('corte')" id="n-corte">Hoja de Corte</button>
+</nav>
+
+<main>
+
+<!-- ══ PRESUPUESTO ══ -->
+<div class="page active" id="page-calc">
+  <div class="pg-title">Calculadora de Presupuesto</div>
+  <p class="pg-sub">Sigue los pasos para generar el presupuesto</p>
+
+  <div class="wiz-dots" id="wiz-dots"></div>
+
+  <div class="card">
+    <!-- PASO 0: datos cliente -->
+    <div class="wiz-step active" id="step-0">
+      <div class="ct">Datos del cliente</div>
+      <div class="g2">
+        <div class="fg"><label>Nombre del cliente</label><input id="w-cliente" placeholder="Juan García"></div>
+        <div class="fg"><label>Referencia / obra</label><input id="w-obra" placeholder="Ventana salón"></div>
+      </div>
+      <button class="btn btn-primary" onclick="wiz_next()">Siguiente →</button>
+    </div>
+
+    <!-- PASO 1: color -->
+    <div class="wiz-step" id="step-1">
+      <div class="ct">¿Qué color / acabado?</div>
+      <div class="g4" id="w-colores"></div>
+      <div style="margin-top:16px">
+        <button class="btn btn-ghost" onclick="wiz_prev()">← Atrás</button>
+        <button class="btn btn-primary" onclick="wiz_next()">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- PASO 2: tipo ventana -->
+    <div class="wiz-step" id="step-2">
+      <div class="ct">¿Corredera o Abatible?</div>
+      <div class="g2">
+        <div class="wiz-opt" onclick="wiz_setTipo('corredera')" id="opt-corredera">
+          <div style="font-size:36px">↔️</div><div style="font-weight:700;margin-top:8px">Corredera</div>
+        </div>
+        <div class="wiz-opt" onclick="wiz_setTipo('abatible')" id="opt-abatible">
+          <div style="font-size:36px">🪟</div><div style="font-weight:700;margin-top:8px">Abatible</div>
+        </div>
+      </div>
+      <div class="g3" style="margin-top:16px">
+        <div class="fg"><label>Ancho (mm)</label><input id="w-ancho" type="number" placeholder="1500"></div>
+        <div class="fg"><label>Alto (mm)</label><input id="w-alto" type="number" placeholder="1200"></div>
+        <div class="fg"><label>Nº hojas</label><input id="w-hojas" type="number" value="2" min="1" max="6"></div>
+      </div>
+      <div class="fg" id="w-junq-fg">
+        <label>Junquillo</label>
+        <select id="w-junquillo"><option value="si">Con Junquillo</option><option value="no">Sin Junquillo</option></select>
+      </div>
+      <div style="margin-top:10px">
+        <button class="btn btn-ghost" onclick="wiz_prev()">← Atrás</button>
+        <button class="btn btn-primary" onclick="wiz_calcAluminio()">Calcular y Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- PASO 3: cristal -->
+    <div class="wiz-step" id="step-3">
+      <div class="ct">¿Lleva cristal?</div>
+      <div class="g3">
+        <div class="wiz-opt" onclick="wiz_setCristal('no')" id="opt-cr-no"><div style="font-size:30px">✕</div><div style="font-weight:700;margin-top:6px">Sin cristal</div></div>
+        <div class="wiz-opt" onclick="wiz_setCristal('simple')" id="opt-cr-simple"><div style="font-size:30px">🔲</div><div style="font-weight:700;margin-top:6px">Simple</div></div>
+        <div class="wiz-opt" onclick="wiz_setCristal('climalit')" id="opt-cr-climalit"><div style="font-size:30px">🪟</div><div style="font-weight:700;margin-top:6px">Climalit</div></div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn btn-ghost" onclick="wiz_prev()">← Atrás</button>
+        <button class="btn btn-primary" onclick="wiz_next()">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- PASO 4: persiana -->
+    <div class="wiz-step" id="step-4">
+      <div class="ct">¿Lleva persiana?</div>
+      <div class="g3">
+        <div class="wiz-opt" onclick="wiz_setPersiana('no')" id="opt-pe-no"><div style="font-size:30px">✕</div><div style="font-weight:700;margin-top:6px">Sin persiana</div></div>
+        <div class="wiz-opt" onclick="wiz_setPersiana('simple')" id="opt-pe-simple"><div style="font-size:30px">⬇️</div><div style="font-weight:700;margin-top:6px">Simple</div></div>
+        <div class="wiz-opt" onclick="wiz_setPersiana('doble')" id="opt-pe-doble"><div style="font-size:30px">⬇️⬇️</div><div style="font-weight:700;margin-top:6px">Doble</div></div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn btn-ghost" onclick="wiz_prev()">← Atrás</button>
+        <button class="btn btn-primary" onclick="wiz_next()">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- PASO 5: horas y otros -->
+    <div class="wiz-step" id="step-5">
+      <div class="ct">Horas y gastos</div>
+      <div class="g2">
+        <div class="fg"><label>Horas fabricación taller</label><input id="w-hfab" type="number" placeholder="3"></div>
+        <div class="fg"><label>€/hora fabricación</label><input id="w-pfab" type="number" placeholder="18"></div>
+      </div>
+      <div class="g2">
+        <div class="fg"><label>Horas instalación</label><input id="w-hinst" type="number" placeholder="2"></div>
+        <div class="fg"><label>€/hora instalación</label><input id="w-pinst" type="number" placeholder="20"></div>
+      </div>
+      <div class="fg"><label>Otros gastos (gasolina, herrajes, etc)</label><input id="w-otros" type="number" placeholder="0"></div>
+      <div style="margin-top:16px">
+        <button class="btn btn-ghost" onclick="wiz_prev()">← Atrás</button>
+        <button class="btn btn-primary" onclick="wiz_calcTotal()">Calcular Total →</button>
+      </div>
+    </div>
+
+    <!-- PASO 6: resultado -->
+    <div class="wiz-step" id="step-6">
+      <div class="ct">Resumen del Presupuesto</div>
+      <div id="w-resumen"></div>
+      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-ghost" onclick="wiz_prev()">← Atrás</button>
+        <button class="btn btn-primary" onclick="wiz_generarPresupuesto()">📄 Generar Presupuesto</button>
+        <button class="btn btn-red" onclick="wiz_reset()">🔄 Nuevo Cálculo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TARIFAS ══ -->
+<div class="page" id="page-tarifas">
+  <div class="pg-title">Gestión de Tarifas</div>
+  <p class="pg-sub">Configura los precios que usará la calculadora. Se guardan automáticamente.</p>
+
+  <div class="card">
+    <div class="ct">Datos de mi Empresa</div>
+    <p class="ts" style="margin-bottom:12px">Aparecen en la cabecera de los presupuestos PDF</p>
+    <div class="g2">
+      <div class="fg"><label>Nombre empresa</label><input id="emp-nombre" placeholder="Carpintería de Aluminio AC"></div>
+      <div class="fg"><label>NIF / CIF</label><input id="emp-cif" placeholder="00000000A"></div>
+    </div>
+    <div class="g2">
+      <div class="fg"><label>Dirección</label><input id="emp-dir" placeholder="C/ Ejemplo, 1 - Huelva"></div>
+      <div class="fg"><label>Teléfono</label><input id="emp-tel" placeholder="600 000 000"></div>
+    </div>
+    <div class="fg"><label>Email</label><input id="emp-email" placeholder="info@carpinteriaac.com"></div>
+    <button class="btn btn-primary" onclick="tar_guardarEmpresa()">Guardar Datos Empresa</button>
+  </div>
+
+  <div class="card">
+    <div class="ct">Perfiles de Aluminio</div>
+    <p class="ts" style="margin-bottom:12px">Precio por metro lineal, según acabado. Descuento aplicado automáticamente.</p>
+    <div id="tar-perfiles-lista"></div>
+    <div class="sep"></div>
+    <div class="g3">
+      <div class="fg"><label>Referencia</label><input id="tp-ref" placeholder="40002"></div>
+      <div class="fg"><label>Descripción</label><input id="tp-desc" placeholder="Marco Ventana AC-400"></div>
+      <div class="fg"><label>Descuento %</label><input id="tp-dto" type="number" value="60"></div>
+    </div>
+    <div class="g4">
+      <div class="fg"><label>Blanco</label><input id="tp-Blanco" type="number"></div>
+      <div class="fg"><label>Básico</label><input id="tp-Basico" type="number"></div>
+      <div class="fg"><label>No Básico</label><input id="tp-NoBasico" type="number"></div>
+      <div class="fg"><label>Maderas 1</label><input id="tp-Maderas1" type="number"></div>
+    </div>
+    <div class="g4">
+      <div class="fg"><label>Maderas 2</label><input id="tp-Maderas2" type="number"></div>
+      <div class="fg"><label>Especial</label><input id="tp-Especial" type="number"></div>
+      <div class="fg"><label>Adapta</label><input id="tp-Adapta" type="number"></div>
+      <div class="fg" style="align-self:flex-end"><button class="btn btn-primary btn-block" onclick="tp_add()">Añadir / Actualizar</button></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ct">Cristal</div>
+    <div class="g2">
+      <div class="fg"><label>Precio Cristal Simple (€/m²)</label><input id="tar-cr-simple" type="number" placeholder="18"></div>
+      <div class="fg"><label>Precio Cristal Climalit (€/m²)</label><input id="tar-cr-climalit" type="number" placeholder="32"></div>
+    </div>
+    <button class="btn btn-primary" onclick="tar_guardarCristal()">Guardar Precios Cristal</button>
+  </div>
+
+  <div class="card">
+    <div class="ct">Persiana</div>
+    <div class="g2">
+      <div class="fg"><label>Precio Persiana Simple (€/m²)</label><input id="tar-pe-simple" type="number" placeholder="45"></div>
+      <div class="fg"><label>Precio Persiana Doble (€/m²)</label><input id="tar-pe-doble" type="number" placeholder="65"></div>
+    </div>
+    <button class="btn btn-primary" onclick="tar_guardarPersiana()">Guardar Precios Persiana</button>
+  </div>
+
+  <div class="card">
+    <div class="ct">Mano de Obra por Defecto</div>
+    <div class="g2">
+      <div class="fg"><label>€/hora Fabricación (defecto)</label><input id="tar-pfab" type="number" placeholder="18"></div>
+      <div class="fg"><label>€/hora Instalación (defecto)</label><input id="tar-pinst" type="number" placeholder="20"></div>
+    </div>
+    <button class="btn btn-primary" onclick="tar_guardarHoras()">Guardar Precios de Hora</button>
+  </div>
+</div>
+
+<!-- ══ HISTORIAL ══ -->
+<div class="page" id="page-historial">
+  <div class="pg-title">Historial de Presupuestos</div>
+  <p class="pg-sub">Todos los presupuestos generados</p>
+  <div class="card">
+    <div id="hist-lista"></div>
+  </div>
+  <div class="card hidden" id="hist-detalle">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="ct" id="hd-titulo" style="margin:0">—</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" id="hd-btn-pdf" onclick="hist_descargarPDF()">📄 Descargar PDF</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hist-detalle').classList.add('hidden')">✕ Cerrar</button>
+      </div>
+    </div>
+    <div id="hd-content"></div>
+  </div>
+</div>
+
+<!-- ══ HOJA DE TRABAJO ══ -->
+<div class="page" id="page-hojatrabajo">
+  <div class="pg-title">Generar Hoja de Trabajo</div>
+  <p class="pg-sub">Configura las deducciones de cada perfil y genera la lista de piezas a cortar</p>
+
+  <div class="card">
+    <div class="ct">Datos de la ventana</div>
+    <div class="g3">
+      <div class="fg"><label>Tipo</label>
+        <select id="ht-tipo"><option value="abatible">Abatible</option><option value="corredera">Corredera</option></select>
+      </div>
+      <div class="fg"><label>Ancho (mm)</label><input id="ht-ancho" type="number" placeholder="1500"></div>
+      <div class="fg"><label>Alto (mm)</label><input id="ht-alto" type="number" placeholder="1200"></div>
+    </div>
+    <div class="fg"><label>Nº hojas</label><input id="ht-hojas" type="number" value="2" min="1" max="6"></div>
+  </div>
+
+  <div class="card" id="ht-config-abatible">
+    <div class="ct">Deducciones — Abatible (mm a restar)</div>
+    <p class="ts" style="margin-bottom:10px">Cuánto hay que restar del ancho/alto de la ventana para cada perfil</p>
+    <div class="g4">
+      <div class="fg"><label>Marco (ambos)</label><input id="ht-a-marco" type="number" value="0"></div>
+      <div class="fg"><label>Hoja vertical</label><input id="ht-a-hojavert" type="number" value="0"></div>
+      <div class="fg"><label>Hoja horizontal</label><input id="ht-a-hojahoriz" type="number" value="0"></div>
+      <div class="fg"><label>Junquillo</label><input id="ht-a-junq" type="number" value="0"></div>
+    </div>
+    <div class="fg"><label>Inversor</label><input id="ht-a-inversor" type="number" value="0" style="max-width:200px"></div>
+  </div>
+
+  <div class="card hidden" id="ht-config-corredera">
+    <div class="ct">Deducciones — Corredera (mm a restar)</div>
+    <div class="g3">
+      <div class="fg"><label>Guía inferior</label><input id="ht-c-guiainf" type="number" value="0"></div>
+      <div class="fg"><label>Guía superior</label><input id="ht-c-guiasup" type="number" value="0"></div>
+      <div class="fg"><label>Marco lateral</label><input id="ht-c-marcolat" type="number" value="0"></div>
+    </div>
+    <div class="g3">
+      <div class="fg"><label>Hoja lateral</label><input id="ht-c-hojalat" type="number" value="0"></div>
+      <div class="fg"><label>Hoja centro</label><input id="ht-c-hojacentro" type="number" value="0"></div>
+      <div class="fg"><label>Hoja ruedas</label><input id="ht-c-hojaruedas" type="number" value="0"></div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary btn-block" onclick="ht_generar()">📐 Generar Hoja de Trabajo</button>
+
+  <div class="card hidden" id="ht-resultado" style="margin-top:16px">
+    <div class="ct">Piezas a Cortar</div>
+    <div id="ht-piezas"></div>
+    <button class="btn btn-primary" style="margin-top:12px" onclick="ht_enviarACorte()">✂️ Enviar a Hoja de Corte (Taller)</button>
+  </div>
+</div>
+
+<!-- ══ HOJA DE CORTE (TALLER) ══ -->
+<div class="page" id="page-corte">
+  <div class="pg-title">Hoja de Corte</div>
+  <p class="pg-sub">Piezas generadas desde Oficina — Hoja de Trabajo</p>
+
+  <div class="card">
+    <div class="ct">Piezas</div>
+    <div id="corte-lista"></div>
+  </div>
+
+  <div class="card">
+    <div class="ct">Configuración de Barras</div>
+    <div class="g2">
+      <div class="fg"><label>Longitud barra (mm)</label><input id="co-blong" type="number" value="6000"></div>
+      <div class="fg"><label>Kerf sierra (mm)</label><input id="co-kerf" type="number" value="3"></div>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="co_calcular()">Calcular Optimización</button>
+    <button class="btn btn-ghost btn-block" style="margin-top:8px" onclick="co_limpiar()">Limpiar todas las piezas</button>
+  </div>
+
+  <div class="card hidden" id="co-resultado">
+    <div class="ct">Distribución de Barras</div>
+    <div id="co-resumen" style="margin-bottom:14px"></div>
+    <div id="co-vis"></div>
+    <button class="btn btn-ghost" style="margin-top:14px" onclick="window.print()">🖨️ Imprimir</button>
+  </div>
+</div>
+
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBaqSIXn_C6g-BAhnMYW17Ucsi4qBcZIJ8",
+  authDomain: "carpinteria-ac.firebaseapp.com",
+  projectId: "carpinteria-ac",
+  storageBucket: "carpinteria-ac.firebasestorage.app",
+  messagingSenderId: "639882097274",
+  appId: "1:639882097274:web:71c5b7b0eb662392ad81c3"
+};
+let db=null, fbReady=false;
+try{
+  const app=initializeApp(FIREBASE_CONFIG);
+  db=getFirestore(app);
+  fbReady=true;
+  window.fbReady=true;
+}catch(e){ console.warn('Firebase init error',e); }
+
+async function cloudSaveAll(){
+  if(!fbReady||!db) return;
+  try{
+    await setDoc(doc(db,"ac_v2","perfiles"),{data:JSON.stringify(window.perfilesTarifa||[]),ts:Date.now()});
+    await setDoc(doc(db,"ac_v2","tarifasExtra"),{data:JSON.stringify(window.tarifasExtra||{}),ts:Date.now()});
+    await setDoc(doc(db,"ac_v2","historial"),{data:JSON.stringify(window.historialPresupuestos||[]),ts:Date.now()});
+    await setDoc(doc(db,"ac_v2","htconfig"),{data:JSON.stringify(window.htConfig||{}),ts:Date.now()});
+    await setDoc(doc(db,"ac_v2","corte"),{data:JSON.stringify(window.cortePiezas||[]),ts:Date.now()});
+  }catch(e){ console.warn('cloudSaveAll error',e); }
+}
+async function cloudLoad(){
+  if(!fbReady||!db) return false;
+  try{
+    const keys=["perfiles","tarifasExtra","historial","htconfig","corte"];
+    const res=await Promise.all(keys.map(k=>getDoc(doc(db,"ac_v2",k))));
+    const map={};
+    keys.forEach((k,i)=>{ if(res[i].exists()) map[k]=res[i].data().data; });
+    if(map.perfiles) try{ var d=JSON.parse(map.perfiles); if(d&&d.length){ window.perfilesTarifa=d; } }catch(e){}
+    if(map.tarifasExtra) try{ window.tarifasExtra=JSON.parse(map.tarifasExtra); }catch(e){}
+    if(map.historial) try{ window.historialPresupuestos=JSON.parse(map.historial); }catch(e){}
+    if(map.htconfig) try{ window.htConfig=JSON.parse(map.htconfig); }catch(e){}
+    if(map.corte) try{ window.cortePiezas=JSON.parse(map.corte); }catch(e){}
+    return true;
+  }catch(e){ console.warn('cloudLoad error',e); return false; }
+}
+window.cloudSaveAll=cloudSaveAll;
+window.cloudLoad=cloudLoad;
+</script>
+
+<script>
+// ==== ESTADO GLOBAL ====
+let perfilesTarifa = [
+  {id:'t001',ref:'80001',desc:'GUIA INFERIOR PT-80',dto:60,precios:{'Blanco':40.31,'Maderas 1':50.47,'Maderas 2':52.73,'Basico':30.02,'No Basico':35.06,'Especial':39.01,'Adapta':50.40}},
+  {id:'t002',ref:'80002',desc:'GUIA SUPERIOR PT-80',dto:60,precios:{'Blanco':28.60,'Maderas 1':47.37,'Maderas 2':49.64,'Basico':31.24,'No Basico':33.74,'Especial':35.83,'Adapta':46.32}},
+  {id:'t003',ref:'80003',desc:'MARCO LATERAL PT-80',dto:60,precios:{'Blanco':24.01,'Maderas 1':40.86,'Maderas 2':42.40,'Basico':26.83,'No Basico':28.37,'Especial':30.38,'Adapta':40.18}},
+  {id:'t004',ref:'80017',desc:'HOJA LATERAL H-10 PT-80',dto:60,precios:{'Blanco':23.84,'Maderas 1':40.77,'Maderas 2':40.77,'Basico':23.84,'No Basico':27.94,'Especial':29.02,'Adapta':39.02}},
+  {id:'t005',ref:'80019',desc:'HOJA RUEDAS H-10 PT-80',dto:60,precios:{'Blanco':19.36,'Maderas 1':33.65,'Maderas 2':35.56,'Basico':22.79,'No Basico':23.09,'Especial':23.09,'Adapta':32.00}},
+  {id:'t006',ref:'80018',desc:'HOJA CENTRO H-10 PT-80',dto:60,precios:{'Blanco':20.84,'Maderas 1':35.30,'Maderas 2':36.96,'Basico':23.51,'No Basico':24.74,'Especial':26.71,'Adapta':35.30}},
+  {id:'t007',ref:'40001',desc:'INVERSOR AC-400',dto:60,precios:{'Blanco':19.83,'Maderas 1':33.03,'Maderas 2':34.55,'Basico':22.27,'No Basico':23.39,'Especial':25.19,'Adapta':33.03}},
+  {id:'t008',ref:'40002',desc:'MARCO VENTANA AC-400',dto:60,precios:{'Blanco':17.67,'Maderas 1':29.81,'Maderas 2':31.21,'Basico':19.91,'No Basico':20.94,'Especial':22.60,'Adapta':29.81}},
+  {id:'t009',ref:'40003',desc:'HOJA CON JUNQUILLO AC-400',dto:60,precios:{'Blanco':23.00,'Maderas 1':39.00,'Maderas 2':40.85,'Basico':25.96,'No Basico':27.32,'Especial':29.50,'Adapta':39.00}},
+  {id:'t010',ref:'40004',desc:'PILASTRA VENTANA AC-400',dto:60,precios:{'Blanco':21.58,'Maderas 1':35.93,'Maderas 2':37.59,'Basico':24.23,'No Basico':25.45,'Especial':27.41,'Adapta':35.93}},
+  {id:'t011',ref:'40005',desc:'HOJA SIN JUNQUILLO AC-400',dto:60,precios:{'Blanco':25.18,'Maderas 1':42.24,'Maderas 2':44.20,'Basico':28.33,'No Basico':29.78,'Especial':32.11,'Adapta':42.24}},
+  {id:'t012',ref:'40006',desc:'JUNQUILLO L-27 AC-400',dto:60,precios:{'Blanco':8.04,'Maderas 1':14.76,'Maderas 2':15.52,'Basico':9.16,'No Basico':9.68,'Especial':10.51,'Adapta':14.14}}
+];
+
+let tarifasExtra = {
+  cristalSimple: 18,
+  cristalClimalit: 32,
+  persianaSimple: 45,
+  persianaDoble: 65,
+  precioHoraFab: 18,
+  precioHoraInst: 20
+};
+
+let historialPresupuestos = [];
+let cortePiezas = [];
+let htConfig = {
+  abatible:{marco:0,hojavert:0,hojahoriz:0,junq:0,inversor:0},
+  corredera:{guiainf:0,guiasup:0,marcolat:0,hojalat:0,hojacentro:0,hojaruedas:0}
+};
+
+const COLORES = ['Blanco','Basico','No Basico','Maderas 1','Maderas 2','Especial','Adapta'];
+const COLORES_LABEL = {'Blanco':'Blanco','Basico':'Basico','No Basico':'No Basico','Maderas 1':'Maderas 1','Maderas 2':'Maderas 2','Especial':'Especial','Adapta':'Adapta'};
+
+function guardar(){
+  try{
+    localStorage.setItem('ac2_perfiles', JSON.stringify(perfilesTarifa));
+    localStorage.setItem('ac2_extra', JSON.stringify(tarifasExtra));
+    localStorage.setItem('ac2_historial', JSON.stringify(historialPresupuestos));
+    localStorage.setItem('ac2_htconfig', JSON.stringify(htConfig));
+    localStorage.setItem('ac2_corte', JSON.stringify(cortePiezas));
+  }catch(e){}
+  window.perfilesTarifa = perfilesTarifa;
+  window.tarifasExtra = tarifasExtra;
+  window.historialPresupuestos = historialPresupuestos;
+  window.htConfig = htConfig;
+  window.cortePiezas = cortePiezas;
+  if(window.cloudSaveAll) window.cloudSaveAll();
+}
+
+function cargarLocal(){
+  try{
+    var p=localStorage.getItem('ac2_perfiles'); if(p){ var d=JSON.parse(p); if(d&&d.length) perfilesTarifa=d; }
+    var e=localStorage.getItem('ac2_extra'); if(e) tarifasExtra=JSON.parse(e);
+    var h=localStorage.getItem('ac2_historial'); if(h) historialPresupuestos=JSON.parse(h);
+    var hc=localStorage.getItem('ac2_htconfig'); if(hc) htConfig=JSON.parse(hc);
+    var c=localStorage.getItem('ac2_corte'); if(c) cortePiezas=JSON.parse(c);
+  }catch(e){}
+}
+
+async function cargarNube(){
+  if(!window.cloudLoad) return;
+  var ok = await window.cloudLoad();
+  if(ok){
+    if(window.perfilesTarifa && window.perfilesTarifa.length) perfilesTarifa=window.perfilesTarifa;
+    if(window.tarifasExtra) tarifasExtra=window.tarifasExtra;
+    if(window.historialPresupuestos) historialPresupuestos=window.historialPresupuestos;
+    if(window.htConfig) htConfig=window.htConfig;
+    if(window.cortePiezas) cortePiezas=window.cortePiezas;
+    tar_render();
+    hist_render();
+    co_render();
+    tar_cargarCamposExtra();
+  }
+}
+
+// ==== NAVEGACION ====
+function sp(id){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.nb').forEach(function(b){b.classList.remove('active');});
+  var pg=document.getElementById('page-'+id); if(pg) pg.classList.add('active');
+  var nb=document.getElementById('n-'+id); if(nb) nb.classList.add('active');
+  if(id==='tarifas'){ tar_render(); tar_cargarCamposExtra(); }
+  if(id==='historial'){ hist_render(); }
+  if(id==='corte'){ co_render(); }
+}
+window.sp = sp;
+
+// ==== WIZARD PRESUPUESTO ====
+let wizStep = 0;
+let wizData = {};
+const WIZ_TOTAL_STEPS = 7;
+
+function wiz_renderDots(){
+  var el = document.getElementById('wiz-dots');
+  var html = '';
+  for(var i=0;i<WIZ_TOTAL_STEPS;i++){
+    var cls = 'wiz-dot';
+    if(i===wizStep) cls += ' active';
+    else if(i<wizStep) cls += ' done';
+    html += '<div class="'+cls+'"></div>';
+  }
+  el.innerHTML = html;
+}
+
+function wiz_show(n){
+  document.querySelectorAll('.wiz-step').forEach(function(s){s.classList.remove('active');});
+  var el = document.getElementById('step-'+n);
+  if(el) el.classList.add('active');
+  wizStep = n;
+  wiz_renderDots();
+}
+
+function wiz_next(){
+  if(wizStep===1 && !wizData.color){ alert('Selecciona un color.'); return; }
+  wiz_show(Math.min(wizStep+1, WIZ_TOTAL_STEPS-1));
+  if(wizStep===1) wiz_renderColores();
+}
+
+function wiz_prev(){
+  wiz_show(Math.max(wizStep-1, 0));
+}
+
+function wiz_renderColores(){
+  var el = document.getElementById('w-colores');
+  var html = '';
+  COLORES.forEach(function(c){
+    var sel = wizData.color===c ? ' selected' : '';
+    html += '<div class="wiz-opt'+sel+'" onclick="wiz_setColor(\''+c+'\')">'+
+      '<div style="font-weight:700">'+COLORES_LABEL[c]+'</div></div>';
+  });
+  el.innerHTML = html;
+}
+
+function wiz_setColor(c){
+  wizData.color = c;
+  wiz_renderColores();
+}
+
+function wiz_setTipo(t){
+  wizData.tipo = t;
+  document.getElementById('opt-corredera').classList.toggle('selected', t==='corredera');
+  document.getElementById('opt-abatible').classList.toggle('selected', t==='abatible');
+  document.getElementById('w-junq-fg').style.display = t==='abatible' ? 'block' : 'none';
+}
+
+function wiz_setCristal(c){
+  wizData.cristal = c;
+  ['no','simple','climalit'].forEach(function(v){
+    document.getElementById('opt-cr-'+v).classList.toggle('selected', c===v);
+  });
+}
+
+function wiz_setPersiana(p){
+  wizData.persiana = p;
+  ['no','simple','doble'].forEach(function(v){
+    document.getElementById('opt-pe-'+v).classList.toggle('selected', p===v);
+  });
+}
+
+function buscarPerfil(refKeys){
+  for(var i=0;i<refKeys.length;i++){
+    var key = refKeys[i];
+    var found = perfilesTarifa.find(function(p){
+      return p.ref===key || (p.ref && p.ref.indexOf(key)>=0);
+    });
+    if(found) return found;
+  }
+  return null;
+}
+
+function precioPerfil(perfil, color){
+  if(!perfil || !perfil.precios) return 0;
+  var precio = perfil.precios[color];
+  if(precio===undefined){
+    var keys = Object.keys(perfil.precios);
+    precio = perfil.precios[keys[0]] || 0;
+  }
+  return precio * (1 - (perfil.dto||0)/100);
+}
+
+function wiz_calcAluminio(){
+  var tipo = wizData.tipo;
+  var ancho = parseFloat(document.getElementById('w-ancho').value)||0;
+  var alto = parseFloat(document.getElementById('w-alto').value)||0;
+  var hojas = parseInt(document.getElementById('w-hojas').value)||2;
+  var junquillo = document.getElementById('w-junquillo').value;
+
+  if(!tipo){ alert('Selecciona corredera o abatible.'); return; }
+  if(!ancho||!alto){ alert('Introduce ancho y alto.'); return; }
+
+  wizData.ancho = ancho;
+  wizData.alto = alto;
+  wizData.hojas = hojas;
+  wizData.junquillo = junquillo;
+
+  var anchoHoja = ancho / hojas;
+  var color = wizData.color;
+  var piezas = [];
+  var costeAlum = 0;
+
+  if(tipo==='abatible'){
+    var pMarco = buscarPerfil(['40002']);
+    var pHoja = junquillo==='si' ? buscarPerfil(['40003']) : buscarPerfil(['40005']);
+    var pJunq = buscarPerfil(['40006']);
+    var pInv = buscarPerfil(['40001']);
+
+    piezas.push({nombre:'Marco anchos', cant:2, mm:ancho, perfil:pMarco});
+    piezas.push({nombre:'Marco altos', cant:2, mm:alto, perfil:pMarco});
+    piezas.push({nombre:'Hoja verticales', cant:hojas*2, mm:alto, perfil:pHoja});
+    piezas.push({nombre:'Hoja horizontales', cant:hojas*2, mm:anchoHoja, perfil:pHoja});
+    if(junquillo==='si'){
+      piezas.push({nombre:'Junquillo verticales', cant:hojas*2, mm:alto, perfil:pJunq});
+      piezas.push({nombre:'Junquillo horizontales', cant:hojas*2, mm:anchoHoja, perfil:pJunq});
+    }
+    var pares = Math.floor(hojas/2);
+    if(pares>0) piezas.push({nombre:'Inversor', cant:pares, mm:alto, perfil:pInv});
+  } else {
+    var pGInf = buscarPerfil(['80001']);
+    var pGSup = buscarPerfil(['80002']);
+    var pMLat = buscarPerfil(['80003']);
+    var pHLat = buscarPerfil(['80017']);
+    var pHCen = buscarPerfil(['80018']);
+    var pHRue = buscarPerfil(['80019']);
+
+    piezas.push({nombre:'Guía inferior', cant:1, mm:ancho, perfil:pGInf});
+    piezas.push({nombre:'Guía superior', cant:1, mm:ancho, perfil:pGSup});
+    piezas.push({nombre:'Marco lateral', cant:2, mm:alto, perfil:pMLat});
+    piezas.push({nombre:'Hoja lateral', cant:hojas, mm:alto, perfil:pHLat});
+    piezas.push({nombre:'Hoja centro', cant:hojas, mm:alto, perfil:pHCen});
+    piezas.push({nombre:'Hoja ruedas', cant:hojas*2, mm:anchoHoja, perfil:pHRue});
+  }
+
+  piezas.forEach(function(p){
+    var precio = precioPerfil(p.perfil, color);
+    var coste = precio * (p.mm/1000) * p.cant;
+    p.precioMl = precio;
+    p.coste = coste;
+    costeAlum += coste;
+  });
+
+  wizData.piezas = piezas;
+  wizData.costeAluminio = costeAlum;
+
+  wiz_show(3);
+}
+
+function wiz_calcTotal(){
+  var hfab = parseFloat(document.getElementById('w-hfab').value)||0;
+  var pfab = parseFloat(document.getElementById('w-pfab').value)||tarifasExtra.precioHoraFab||0;
+  var hinst = parseFloat(document.getElementById('w-hinst').value)||0;
+  var pinst = parseFloat(document.getElementById('w-pinst').value)||tarifasExtra.precioHoraInst||0;
+  var otros = parseFloat(document.getElementById('w-otros').value)||0;
+
+  var m2 = (wizData.ancho/1000) * (wizData.alto/1000);
+
+  var costeCristal = 0;
+  if(wizData.cristal==='simple') costeCristal = m2 * (tarifasExtra.cristalSimple||0);
+  else if(wizData.cristal==='climalit') costeCristal = m2 * (tarifasExtra.cristalClimalit||0);
+
+  var costePersiana = 0;
+  if(wizData.persiana==='simple') costePersiana = m2 * (tarifasExtra.persianaSimple||0);
+  else if(wizData.persiana==='doble') costePersiana = m2 * (tarifasExtra.persianaDoble||0);
+
+  var materiales = wizData.costeAluminio + costeCristal + costePersiana;
+  var costeFab = hfab * pfab;
+  var costeInst = hinst * pinst;
+  var total = (materiales * 2) + costeFab + costeInst + otros;
+
+  wizData.m2 = m2;
+  wizData.costeCristal = costeCristal;
+  wizData.costePersiana = costePersiana;
+  wizData.hfab = hfab; wizData.pfab = pfab;
+  wizData.hinst = hinst; wizData.pinst = pinst;
+  wizData.otros = otros;
+  wizData.materiales = materiales;
+  wizData.total = total;
+
+  var html = '';
+  html += '<div style="display:grid;gap:10px">';
+  html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span>Aluminio ('+wizData.tipo+', '+COLORES_LABEL[wizData.color]+')</span><span class="mono">'+wizData.costeAluminio.toFixed(2)+' €</span></div>';
+  if(costeCristal>0) html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span>Cristal '+wizData.cristal+' ('+m2.toFixed(2)+' m²)</span><span class="mono">'+costeCristal.toFixed(2)+' €</span></div>';
+  if(costePersiana>0) html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span>Persiana '+wizData.persiana+' ('+m2.toFixed(2)+' m²)</span><span class="mono">'+costePersiana.toFixed(2)+' €</span></div>';
+  html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);color:var(--text2)"><span>Materiales x2</span><span class="mono">'+(materiales*2).toFixed(2)+' €</span></div>';
+  if(costeFab>0) html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span>Mano de obra fabricación ('+hfab+'h x '+pfab+'€)</span><span class="mono">'+costeFab.toFixed(2)+' €</span></div>';
+  if(costeInst>0) html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span>Instalación ('+hinst+'h x '+pinst+'€)</span><span class="mono">'+costeInst.toFixed(2)+' €</span></div>';
+  if(otros>0) html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span>Otros gastos</span><span class="mono">'+otros.toFixed(2)+' €</span></div>';
+  html += '<div style="display:flex;justify-content:space-between;padding:14px 0;font-family:Playfair Display,serif;font-size:28px;color:var(--accent)"><span>TOTAL</span><span>'+total.toFixed(2)+' €</span></div>';
+  html += '</div>';
+
+  document.getElementById('w-resumen').innerHTML = html;
+  wiz_show(6);
+}
+
+function wiz_reset(){
+  wizData = {};
+  document.getElementById('w-cliente').value = '';
+  document.getElementById('w-obra').value = '';
+  document.getElementById('w-ancho').value = '';
+  document.getElementById('w-alto').value = '';
+  document.getElementById('w-hojas').value = '2';
+  document.getElementById('w-hfab').value = '';
+  document.getElementById('w-hinst').value = '';
+  document.getElementById('w-otros').value = '';
+  document.querySelectorAll('.wiz-opt').forEach(function(o){o.classList.remove('selected');});
+  wiz_show(0);
+}
+
+function wiz_generarPresupuesto(){
+  var cliente = document.getElementById('w-cliente').value || 'Sin nombre';
+  var obra = document.getElementById('w-obra').value || '';
+  var pres = {
+    id: 'p'+Date.now(),
+    fecha: new Date().toISOString(),
+    cliente: cliente,
+    obra: obra,
+    tipo: wizData.tipo,
+    color: wizData.color,
+    ancho: wizData.ancho,
+    alto: wizData.alto,
+    hojas: wizData.hojas,
+    cristal: wizData.cristal,
+    persiana: wizData.persiana,
+    costeAluminio: wizData.costeAluminio,
+    costeCristal: wizData.costeCristal,
+    costePersiana: wizData.costePersiana,
+    hfab: wizData.hfab, pfab: wizData.pfab,
+    hinst: wizData.hinst, pinst: wizData.pinst,
+    otros: wizData.otros,
+    total: wizData.total,
+    piezas: wizData.piezas
+  };
+  historialPresupuestos.unshift(pres);
+  guardar();
+  alert('Presupuesto guardado en el Historial.');
+  sp('historial');
+}
+
+// ==== TARIFAS ====
+function tp_add(){
+  var ref = document.getElementById('tp-ref').value.trim();
+  var desc = document.getElementById('tp-desc').value.trim();
+  var dto = parseFloat(document.getElementById('tp-dto').value)||0;
+  if(!ref || !desc){ alert('Rellena referencia y descripción.'); return; }
+  var precios = {};
+  var campos = {'Blanco':'tp-Blanco','Basico':'tp-Basico','No Basico':'tp-NoBasico','Maderas 1':'tp-Maderas1','Maderas 2':'tp-Maderas2','Especial':'tp-Especial','Adapta':'tp-Adapta'};
+  Object.keys(campos).forEach(function(k){
+    var v = parseFloat(document.getElementById(campos[k]).value);
+    if(!isNaN(v) && v>0) precios[k]=v;
+  });
+  var existing = perfilesTarifa.find(function(p){return p.ref===ref;});
+  if(existing){
+    existing.desc=desc; existing.dto=dto; existing.precios=precios;
+  } else {
+    perfilesTarifa.push({id:'t'+Date.now(), ref:ref, desc:desc, dto:dto, precios:precios});
+  }
+  guardar();
+  tar_render();
+  ['tp-ref','tp-desc'].forEach(function(id){document.getElementById(id).value='';});
+  Object.values(campos).forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('tp-dto').value='60';
+}
+
+function tp_del(id){
+  if(!confirm('Eliminar este perfil?')) return;
+  perfilesTarifa = perfilesTarifa.filter(function(p){return p.id!==id;});
+  guardar();
+  tar_render();
+}
+
+function tp_edit(id){
+  var p = perfilesTarifa.find(function(x){return x.id===id;});
+  if(!p) return;
+  document.getElementById('tp-ref').value = p.ref;
+  document.getElementById('tp-desc').value = p.desc;
+  document.getElementById('tp-dto').value = p.dto||0;
+  var campos = {'Blanco':'tp-Blanco','Basico':'tp-Basico','No Basico':'tp-NoBasico','Maderas 1':'tp-Maderas1','Maderas 2':'tp-Maderas2','Especial':'tp-Especial','Adapta':'tp-Adapta'};
+  Object.keys(campos).forEach(function(k){
+    document.getElementById(campos[k]).value = (p.precios && p.precios[k]) ? p.precios[k] : '';
+  });
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function tar_render(){
+  var el = document.getElementById('tar-perfiles-lista');
+  if(!el) return;
+  if(!perfilesTarifa.length){ el.innerHTML='<p class="ts">Sin perfiles.</p>'; return; }
+  var html = '<table><thead><tr><th>Ref</th><th>Descripción</th><th>Dto</th><th>Blanco</th><th></th></tr></thead><tbody>';
+  perfilesTarifa.forEach(function(p){
+    var blanco = (p.precios && p.precios['Blanco']) ? p.precios['Blanco'].toFixed(2)+' €' : '-';
+    html += '<tr>';
+    html += '<td class="mono">'+p.ref+'</td>';
+    html += '<td>'+p.desc+'</td>';
+    html += '<td>'+(p.dto||0)+'%</td>';
+    html += '<td class="mono">'+blanco+'</td>';
+    html += '<td><button class="btn btn-ghost btn-sm" onclick="tp_edit(\''+p.id+'\')">✎</button> ';
+    html += '<button class="btn btn-red btn-sm" onclick="tp_del(\''+p.id+'\')">✕</button></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function tar_cargarCamposExtra(){
+  document.getElementById('tar-cr-simple').value = tarifasExtra.cristalSimple||'';
+  document.getElementById('tar-cr-climalit').value = tarifasExtra.cristalClimalit||'';
+  document.getElementById('tar-pe-simple').value = tarifasExtra.persianaSimple||'';
+  document.getElementById('tar-pe-doble').value = tarifasExtra.persianaDoble||'';
+  document.getElementById('tar-pfab').value = tarifasExtra.precioHoraFab||'';
+  document.getElementById('tar-pinst').value = tarifasExtra.precioHoraInst||'';
+  document.getElementById('emp-nombre').value = tarifasExtra.empNombre||'';
+  document.getElementById('emp-cif').value = tarifasExtra.empCif||'';
+  document.getElementById('emp-dir').value = tarifasExtra.empDir||'';
+  document.getElementById('emp-tel').value = tarifasExtra.empTel||'';
+  document.getElementById('emp-email').value = tarifasExtra.empEmail||'';
+}
+
+function tar_guardarEmpresa(){
+  tarifasExtra.empNombre = document.getElementById('emp-nombre').value;
+  tarifasExtra.empCif = document.getElementById('emp-cif').value;
+  tarifasExtra.empDir = document.getElementById('emp-dir').value;
+  tarifasExtra.empTel = document.getElementById('emp-tel').value;
+  tarifasExtra.empEmail = document.getElementById('emp-email').value;
+  guardar();
+  alert('Datos de empresa guardados.');
+}
+
+function tar_guardarCristal(){
+  tarifasExtra.cristalSimple = parseFloat(document.getElementById('tar-cr-simple').value)||0;
+  tarifasExtra.cristalClimalit = parseFloat(document.getElementById('tar-cr-climalit').value)||0;
+  guardar();
+  alert('Precios de cristal guardados.');
+}
+function tar_guardarPersiana(){
+  tarifasExtra.persianaSimple = parseFloat(document.getElementById('tar-pe-simple').value)||0;
+  tarifasExtra.persianaDoble = parseFloat(document.getElementById('tar-pe-doble').value)||0;
+  guardar();
+  alert('Precios de persiana guardados.');
+}
+function tar_guardarHoras(){
+  tarifasExtra.precioHoraFab = parseFloat(document.getElementById('tar-pfab').value)||0;
+  tarifasExtra.precioHoraInst = parseFloat(document.getElementById('tar-pinst').value)||0;
+  guardar();
+  alert('Precios de mano de obra guardados.');
+}
+
+// ==== HISTORIAL ====
+function svgProducto(tipo){
+  var color = '#e6a817';
+  if(tipo==='corredera'){
+    return '<svg viewBox="0 0 160 120" style="width:100%;height:120px"><rect x="10" y="10" width="140" height="100" fill="none" stroke="'+color+'" stroke-width="4"/><line x1="80" y1="10" x2="80" y2="110" stroke="'+color+'" stroke-width="3"/><line x1="10" y1="60" x2="150" y2="60" stroke="'+color+'" stroke-width="2" opacity="0.4"/></svg>';
+  }
+  return '<svg viewBox="0 0 160 120" style="width:100%;height:120px"><rect x="10" y="10" width="140" height="100" fill="none" stroke="'+color+'" stroke-width="4"/><rect x="20" y="20" width="55" height="80" fill="none" stroke="'+color+'" stroke-width="2" opacity="0.6"/><rect x="85" y="20" width="55" height="80" fill="none" stroke="'+color+'" stroke-width="2" opacity="0.6"/></svg>';
+}
+
+function hist_render(){
+  var el = document.getElementById('hist-lista');
+  if(!el) return;
+  if(!historialPresupuestos.length){ el.innerHTML='<p class="ts" style="text-align:center;padding:20px">Sin presupuestos aún.</p>'; return; }
+  var html = '';
+  historialPresupuestos.forEach(function(p){
+    var fecha = new Date(p.fecha).toLocaleDateString('es-ES');
+    html += '<div style="display:flex;gap:14px;background:var(--bg3);border-radius:var(--rs);padding:14px;margin-bottom:10px;cursor:pointer" onclick="hist_ver(\''+p.id+'\')">';
+    html += '<div style="width:100px;flex-shrink:0">'+svgProducto(p.tipo)+'</div>';
+    html += '<div style="flex:1">';
+    html += '<div style="font-weight:700">'+p.cliente+(p.obra?' — '+p.obra:'')+'</div>';
+    html += '<div class="ts">'+fecha+' · '+p.tipo+' · '+p.ancho+'x'+p.alto+'mm</div>';
+    html += '</div>';
+    html += '<div style="text-align:right;flex-shrink:0">';
+    html += '<div style="font-family:Playfair Display,serif;font-size:22px;color:var(--accent)">'+p.total.toFixed(2)+' €</div>';
+    html += '<button class="btn btn-red btn-sm" onclick="event.stopPropagation();hist_del(\''+p.id+'\')">✕</button>';
+    html += '</div></div>';
+  });
+  el.innerHTML = html;
+}
+
+function hist_del(id){
+  if(!confirm('Eliminar este presupuesto?')) return;
+  historialPresupuestos = historialPresupuestos.filter(function(p){return p.id!==id;});
+  guardar();
+  hist_render();
+}
+
+function hist_ver(id){
+  var p = historialPresupuestos.find(function(x){return x.id===id;});
+  if(!p) return;
+  var fecha = new Date(p.fecha).toLocaleDateString('es-ES');
+  document.getElementById('hd-titulo').textContent = p.cliente + (p.obra ? ' — '+p.obra : '');
+  var html = '<div style="display:grid;grid-template-columns:200px 1fr;gap:20px">';
+  html += '<div>'+svgProducto(p.tipo)+'</div>';
+  html += '<div>';
+  html += '<div class="ts">Fecha: '+fecha+'</div>';
+  html += '<div class="ts">Tipo: '+p.tipo+' · Color: '+COLORES_LABEL[p.color]+'</div>';
+  html += '<div class="ts">Medidas: '+p.ancho+' x '+p.alto+' mm · '+p.hojas+' hojas</div>';
+  html += '<div class="sep"></div>';
+  html += '<div style="display:grid;gap:6px;font-size:13px">';
+  html += '<div style="display:flex;justify-content:space-between"><span>Aluminio</span><span class="mono">'+p.costeAluminio.toFixed(2)+' €</span></div>';
+  if(p.costeCristal>0) html += '<div style="display:flex;justify-content:space-between"><span>Cristal ('+p.cristal+')</span><span class="mono">'+p.costeCristal.toFixed(2)+' €</span></div>';
+  if(p.costePersiana>0) html += '<div style="display:flex;justify-content:space-between"><span>Persiana ('+p.persiana+')</span><span class="mono">'+p.costePersiana.toFixed(2)+' €</span></div>';
+  if(p.hfab) html += '<div style="display:flex;justify-content:space-between"><span>Fabricación '+p.hfab+'h</span><span class="mono">'+(p.hfab*p.pfab).toFixed(2)+' €</span></div>';
+  if(p.hinst) html += '<div style="display:flex;justify-content:space-between"><span>Instalación '+p.hinst+'h</span><span class="mono">'+(p.hinst*p.pinst).toFixed(2)+' €</span></div>';
+  if(p.otros) html += '<div style="display:flex;justify-content:space-between"><span>Otros</span><span class="mono">'+p.otros.toFixed(2)+' €</span></div>';
+  html += '<div style="display:flex;justify-content:space-between;font-family:Playfair Display,serif;font-size:22px;color:var(--accent);padding-top:8px;border-top:1px solid var(--border)"><span>TOTAL</span><span>'+p.total.toFixed(2)+' €</span></div>';
+  html += '</div></div></div>';
+  document.getElementById('hd-content').innerHTML = html;
+  document.getElementById('hist-detalle').classList.remove('hidden');
+  document.getElementById('hist-detalle').scrollIntoView({behavior:'smooth'});
+  document.getElementById('hd-btn-pdf').setAttribute('data-id', id);
+}
+
+// ==== GENERACION PDF ====
+function pdf_dibujarPieza(doc, p, x, y, w, h){
+  // x,y = esquina superior izquierda del area de dibujo en mm del PDF
+  // w,h = ancho y alto disponibles para el dibujo
+  var ancho = p.ancho, alto = p.alto, hojas = p.hojas||2, tipo = p.tipo;
+  var ratio = ancho/alto;
+  var boxW = w*0.72, boxH = boxW/ratio;
+  if(boxH > h*0.72){ boxH = h*0.72; boxW = boxH*ratio; }
+  var ox = x + (w-boxW)/2;
+  var oy = y + (h-boxH)/2 - 3;
+
+  doc.setDrawColor(40,40,40);
+  doc.setLineWidth(0.5);
+  doc.rect(ox, oy, boxW, boxH);
+
+  if(tipo==='corredera'){
+    doc.setLineWidth(0.3);
+    var mid = ox + boxW/2;
+    doc.line(mid, oy, mid, oy+boxH);
+    // flechas indicando deslizamiento
+    doc.setFontSize(7);
+    doc.text('<-->', ox+boxW/2-4, oy+boxH/2, {angle:0});
+  } else {
+    // abatible: dividir en 'hojas' paneles verticales con cruz de apertura
+    doc.setLineWidth(0.3);
+    var panelW = boxW/hojas;
+    for(var i=1;i<hojas;i++){
+      doc.line(ox+panelW*i, oy, ox+panelW*i, oy+boxH);
+    }
+    for(var j=0;j<hojas;j++){
+      var px = ox+panelW*j, py = oy;
+      doc.setLineDashPattern([1,1],0);
+      doc.line(px+1, py+1, px+panelW-1, py+boxH-1);
+      doc.line(px+panelW-1, py+1, px+1, py+boxH-1);
+      doc.setLineDashPattern([],0);
+    }
+  }
+
+  // cotas
+  doc.setFontSize(7);
+  doc.setTextColor(60,60,60);
+  doc.line(ox, oy+boxH+3, ox+boxW, oy+boxH+3);
+  doc.line(ox, oy+boxH+2, ox, oy+boxH+4);
+  doc.line(ox+boxW, oy+boxH+2, ox+boxW, oy+boxH+4);
+  doc.text(String(ancho), ox+boxW/2-6, oy+boxH+7);
+
+  doc.line(ox-3, oy, ox-3, oy+boxH);
+  doc.line(ox-4, oy, ox-2, oy);
+  doc.line(ox-4, oy+boxH, ox-2, oy+boxH);
+  doc.text(String(alto), ox-11, oy+boxH/2, {angle:90});
+
+  doc.setTextColor(0,0,0);
+}
+
+function hist_descargarPDF(){
+  var id = document.getElementById('hd-btn-pdf').getAttribute('data-id');
+  var p = historialPresupuestos.find(function(x){return x.id===id;});
+  if(!p) return;
+  if(!window.jspdf){ alert('Error cargando generador de PDF. Revisa tu conexión a internet.'); return; }
+
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({unit:'mm', format:'a4'});
+  var pageW = 210;
+
+  // CABECERA EMPRESA
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(16);
+  doc.text(tarifasExtra.empNombre || 'Carpinteria de Aluminio AC', 15, 18);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(9);
+  var yh = 24;
+  if(tarifasExtra.empCif){ doc.text('CIF: '+tarifasExtra.empCif, 15, yh); yh+=4.5; }
+  if(tarifasExtra.empDir){ doc.text(tarifasExtra.empDir, 15, yh); yh+=4.5; }
+  if(tarifasExtra.empTel){ doc.text('Tel: '+tarifasExtra.empTel, 15, yh); yh+=4.5; }
+  if(tarifasExtra.empEmail){ doc.text(tarifasExtra.empEmail, 15, yh); yh+=4.5; }
+
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(20);
+  doc.text('PRESUPUESTO', pageW-15, 18, {align:'right'});
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(9);
+  var fecha = new Date(p.fecha).toLocaleDateString('es-ES');
+  doc.text('Nº: '+p.id.substring(1,9), pageW-15, 25, {align:'right'});
+  doc.text('Fecha: '+fecha, pageW-15, 30, {align:'right'});
+
+  doc.setDrawColor(200,200,200);
+  doc.line(15, 42, pageW-15, 42);
+
+  // DATOS CLIENTE
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(10);
+  doc.text('CLIENTE', 15, 50);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(10);
+  doc.text(p.cliente, 15, 56);
+  if(p.obra) doc.text('Obra: '+p.obra, 15, 61);
+
+  // TABLA
+  var tableY = 72;
+  doc.setFillColor(230,168,23);
+  doc.rect(15, tableY, pageW-30, 8, 'F');
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(9);
+  doc.setTextColor(255,255,255);
+  doc.text('CANT.', 18, tableY+5.5);
+  doc.text('DESCRIPCION', 35, tableY+5.5);
+  doc.text('DIBUJO', 118, tableY+5.5);
+  doc.text('TOTAL', pageW-18, tableY+5.5, {align:'right'});
+  doc.setTextColor(0,0,0);
+
+  var rowY = tableY+8;
+  var rowH = 62;
+  doc.setDrawColor(220,220,220);
+  doc.rect(15, rowY, pageW-30, rowH);
+  doc.line(30, rowY, 30, rowY+rowH);
+  doc.line(105, rowY, 105, rowY+rowH);
+  doc.line(pageW-40, rowY, pageW-40, rowY+rowH);
+
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(9);
+  doc.text('1', 20, rowY+8);
+
+  var desc = [];
+  desc.push((p.tipo==='corredera'?'Ventana Corredera':'Ventana Abatible')+' de Aluminio');
+  desc.push('Color: '+COLORES_LABEL[p.color]);
+  desc.push('Medidas: '+p.ancho+' x '+p.alto+' mm');
+  desc.push(p.hojas+' hojas');
+  if(p.cristal && p.cristal!=='no') desc.push('Cristal '+p.cristal);
+  if(p.persiana && p.persiana!=='no') desc.push('Persiana '+p.persiana);
+  desc.push('Instalación incluida');
+
+  var dy = rowY+7;
+  desc.forEach(function(line){
+    doc.text(line, 33, dy);
+    dy += 5.2;
+  });
+
+  pdf_dibujarPieza(doc, p, 106, rowY, 60, rowH);
+
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(11);
+  doc.text(p.total.toFixed(2)+' EUR', pageW-18, rowY+10, {align:'right'});
+
+  // TOTALES
+  var totY = rowY+rowH+14;
+  var base = p.total / 1.21;
+  var iva = p.total - base;
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica','normal');
+  doc.text('Base Imponible:', pageW-70, totY);
+  doc.text(base.toFixed(2)+' EUR', pageW-18, totY, {align:'right'});
+  doc.text('IVA (21%):', pageW-70, totY+6);
+  doc.text(iva.toFixed(2)+' EUR', pageW-18, totY+6, {align:'right'});
+
+  doc.setFillColor(230,168,23);
+  doc.rect(pageW-85, totY+10, 70, 10, 'F');
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(13);
+  doc.setTextColor(255,255,255);
+  doc.text('TOTAL', pageW-80, totY+17);
+  doc.text(p.total.toFixed(2)+' EUR', pageW-18, totY+17, {align:'right'});
+  doc.setTextColor(0,0,0);
+
+  // PIE
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(8);
+  doc.setTextColor(120,120,120);
+  doc.text('Presupuesto válido 30 días. Forma de pago: 50% al confirmar, 50% a la entrega.', 15, 280);
+  doc.text('Gracias por confiar en '+(tarifasExtra.empNombre||'nosotros')+'.', 15, 285);
+
+  var nombreArchivo = 'Presupuesto_'+p.cliente.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
+  doc.save(nombreArchivo);
+}
+
+// ==== HOJA DE TRABAJO ====
+document.addEventListener('change', function(e){
+  if(e.target && e.target.id==='ht-tipo'){
+    var t = e.target.value;
+    document.getElementById('ht-config-abatible').classList.toggle('hidden', t!=='abatible');
+    document.getElementById('ht-config-corredera').classList.toggle('hidden', t!=='corredera');
+  }
+});
+
+let htPiezasGeneradas = [];
+
+function ht_generar(){
+  var tipo = document.getElementById('ht-tipo').value;
+  var ancho = parseFloat(document.getElementById('ht-ancho').value)||0;
+  var alto = parseFloat(document.getElementById('ht-alto').value)||0;
+  var hojas = parseInt(document.getElementById('ht-hojas').value)||2;
+  if(!ancho||!alto){ alert('Introduce ancho y alto.'); return; }
+
+  var anchoHoja = ancho/hojas;
+  var piezas = [];
+
+  if(tipo==='abatible'){
+    var dMarco = parseFloat(document.getElementById('ht-a-marco').value)||0;
+    var dHV = parseFloat(document.getElementById('ht-a-hojavert').value)||0;
+    var dHH = parseFloat(document.getElementById('ht-a-hojahoriz').value)||0;
+    var dJ = parseFloat(document.getElementById('ht-a-junq').value)||0;
+    var dInv = parseFloat(document.getElementById('ht-a-inversor').value)||0;
+
+    piezas.push({ref:'Marco ancho', long:Math.round(ancho-dMarco), cant:2});
+    piezas.push({ref:'Marco alto', long:Math.round(alto-dMarco), cant:2});
+    piezas.push({ref:'Hoja vertical', long:Math.round(alto-dHV), cant:hojas*2});
+    piezas.push({ref:'Hoja horizontal', long:Math.round(anchoHoja-dHH), cant:hojas*2});
+    piezas.push({ref:'Junquillo vertical', long:Math.round(alto-dJ), cant:hojas*2});
+    piezas.push({ref:'Junquillo horizontal', long:Math.round(anchoHoja-dJ), cant:hojas*2});
+    var pares = Math.floor(hojas/2);
+    if(pares>0) piezas.push({ref:'Inversor', long:Math.round(alto-dInv), cant:pares});
+  } else {
+    var dGI = parseFloat(document.getElementById('ht-c-guiainf').value)||0;
+    var dGS = parseFloat(document.getElementById('ht-c-guiasup').value)||0;
+    var dML = parseFloat(document.getElementById('ht-c-marcolat').value)||0;
+    var dHL = parseFloat(document.getElementById('ht-c-hojalat').value)||0;
+    var dHC = parseFloat(document.getElementById('ht-c-hojacentro').value)||0;
+    var dHR = parseFloat(document.getElementById('ht-c-hojaruedas').value)||0;
+
+    piezas.push({ref:'Guía inferior', long:Math.round(ancho-dGI), cant:1});
+    piezas.push({ref:'Guía superior', long:Math.round(ancho-dGS), cant:1});
+    piezas.push({ref:'Marco lateral', long:Math.round(alto-dML), cant:2});
+    piezas.push({ref:'Hoja lateral', long:Math.round(alto-dHL), cant:hojas});
+    piezas.push({ref:'Hoja centro', long:Math.round(alto-dHC), cant:hojas});
+    piezas.push({ref:'Hoja ruedas', long:Math.round(anchoHoja-dHR), cant:hojas*2});
+  }
+
+  htPiezasGeneradas = piezas;
+
+  var html = '<table><thead><tr><th>Perfil</th><th>Longitud (mm)</th><th>Cantidad</th></tr></thead><tbody>';
+  piezas.forEach(function(p){
+    html += '<tr><td>'+p.ref+'</td><td class="mono" style="color:var(--accent)">'+p.long+'</td><td>'+p.cant+'</td></tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('ht-piezas').innerHTML = html;
+  document.getElementById('ht-resultado').classList.remove('hidden');
+
+  // guardar config para recordar
+  htConfig[tipo] = tipo==='abatible'
+    ? {marco:dMarco0(),hojavert:0}
+    : htConfig[tipo];
+  guardar_htconfig(tipo);
+}
+
+function guardar_htconfig(tipo){
+  if(tipo==='abatible'){
+    htConfig.abatible = {
+      marco: parseFloat(document.getElementById('ht-a-marco').value)||0,
+      hojavert: parseFloat(document.getElementById('ht-a-hojavert').value)||0,
+      hojahoriz: parseFloat(document.getElementById('ht-a-hojahoriz').value)||0,
+      junq: parseFloat(document.getElementById('ht-a-junq').value)||0,
+      inversor: parseFloat(document.getElementById('ht-a-inversor').value)||0
+    };
+  } else {
+    htConfig.corredera = {
+      guiainf: parseFloat(document.getElementById('ht-c-guiainf').value)||0,
+      guiasup: parseFloat(document.getElementById('ht-c-guiasup').value)||0,
+      marcolat: parseFloat(document.getElementById('ht-c-marcolat').value)||0,
+      hojalat: parseFloat(document.getElementById('ht-c-hojalat').value)||0,
+      hojacentro: parseFloat(document.getElementById('ht-c-hojacentro').value)||0,
+      hojaruedas: parseFloat(document.getElementById('ht-c-hojaruedas').value)||0
+    };
+  }
+  guardar();
+}
+
+function dMarco0(){ return 0; }
+
+function ht_enviarACorte(){
+  if(!htPiezasGeneradas.length){ alert('Genera primero la hoja de trabajo.'); return; }
+  htPiezasGeneradas.forEach(function(p){
+    cortePiezas.push({ref:p.ref, long:p.long, cant:p.cant, id:Date.now()+Math.random()});
+  });
+  guardar();
+  alert('Piezas enviadas a la Hoja de Corte (Taller).');
+}
+
+function ht_cargarConfigGuardada(){
+  var a = htConfig.abatible || {};
+  document.getElementById('ht-a-marco').value = a.marco||0;
+  document.getElementById('ht-a-hojavert').value = a.hojavert||0;
+  document.getElementById('ht-a-hojahoriz').value = a.hojahoriz||0;
+  document.getElementById('ht-a-junq').value = a.junq||0;
+  document.getElementById('ht-a-inversor').value = a.inversor||0;
+  var c = htConfig.corredera || {};
+  document.getElementById('ht-c-guiainf').value = c.guiainf||0;
+  document.getElementById('ht-c-guiasup').value = c.guiasup||0;
+  document.getElementById('ht-c-marcolat').value = c.marcolat||0;
+  document.getElementById('ht-c-hojalat').value = c.hojalat||0;
+  document.getElementById('ht-c-hojacentro').value = c.hojacentro||0;
+  document.getElementById('ht-c-hojaruedas').value = c.hojaruedas||0;
+}
+
+// ==== HOJA DE CORTE ====
+function co_render(){
+  var el = document.getElementById('corte-lista');
+  if(!el) return;
+  if(!cortePiezas.length){ el.innerHTML='<p class="ts" style="text-align:center;padding:20px">Sin piezas. Genéralas desde Oficina — Hoja de Trabajo.</p>'; return; }
+  var html = '<table><thead><tr><th>Referencia</th><th>Long (mm)</th><th>Cant</th><th></th></tr></thead><tbody>';
+  cortePiezas.forEach(function(p){
+    html += '<tr><td style="font-weight:600">'+p.ref+'</td><td class="mono" style="color:var(--accent)">'+p.long+'</td><td>'+p.cant+'</td>';
+    html += '<td><button class="btn btn-red btn-sm" onclick="co_del('+p.id+')">✕</button></td></tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function co_del(id){
+  cortePiezas = cortePiezas.filter(function(p){return p.id!==id;});
+  guardar();
+  co_render();
+}
+
+function co_limpiar(){
+  if(!confirm('Eliminar todas las piezas?')) return;
+  cortePiezas = [];
+  guardar();
+  co_render();
+  document.getElementById('co-resultado').classList.add('hidden');
+}
+
+function co_calcular(){
+  if(!cortePiezas.length){ alert('No hay piezas.'); return; }
+  var blong = parseInt(document.getElementById('co-blong').value)||6000;
+  var kerf = parseInt(document.getElementById('co-kerf').value)||3;
+
+  var piezas = [];
+  cortePiezas.forEach(function(p){
+    for(var i=0;i<p.cant;i++) piezas.push({long:p.long+kerf, ref:p.ref, orig:p.long});
+  });
+  piezas.sort(function(a,b){return b.long-a.long;});
+
+  var barras = [];
+  piezas.forEach(function(pieza){
+    var colocado = false;
+    for(var i=0;i<barras.length;i++){
+      if(barras[i].rest >= pieza.long){ barras[i].piezas.push(pieza); barras[i].rest -= pieza.long; colocado=true; break; }
+    }
+    if(!colocado) barras.push({piezas:[pieza], rest: blong-pieza.long});
+  });
+
+  var usado = 0;
+  barras.forEach(function(b){ usado += (blong-b.rest); });
+  var efic = (usado/(barras.length*blong)*100).toFixed(1);
+  var merma = barras.length*blong - usado;
+
+  document.getElementById('co-resumen').innerHTML =
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center">'+
+    '<div style="background:var(--bg3);border-radius:var(--rs);padding:14px"><div class="ts">Barras</div><div style="font-family:Playfair Display,serif;font-size:26px;color:var(--accent)">'+barras.length+'</div></div>'+
+    '<div style="background:var(--bg3);border-radius:var(--rs);padding:14px"><div class="ts">Eficiencia</div><div style="font-family:Playfair Display,serif;font-size:26px;color:var(--green2)">'+efic+'%</div></div>'+
+    '<div style="background:var(--bg3);border-radius:var(--rs);padding:14px"><div class="ts">Merma</div><div style="font-family:Playfair Display,serif;font-size:26px">'+merma+' mm</div></div>'+
+    '</div>';
+
+  var visHtml = '';
+  barras.forEach(function(b,i){
+    var segs = '';
+    b.piezas.forEach(function(p){
+      var pct = (p.long/blong*100).toFixed(1);
+      segs += '<div style="height:26px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;background:var(--accent);width:'+pct+'%;min-width:22px" title="'+p.ref+': '+p.orig+'mm">'+p.orig+'</div>';
+    });
+    var restPct = (b.rest/blong*100).toFixed(1);
+    if(b.rest>0) segs += '<div style="height:26px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text2);background:var(--bg4);width:'+restPct+'%">'+b.rest+'</div>';
+    visHtml += '<div style="background:var(--bg3);border-radius:var(--rs);padding:12px;margin-bottom:8px;border-left:3px solid var(--accent)">';
+    visHtml += '<div style="font-size:12px;font-weight:700;margin-bottom:8px">Barra '+(i+1)+'</div>';
+    visHtml += '<div style="display:flex;gap:3px;flex-wrap:wrap">'+segs+'</div></div>';
+  });
+  document.getElementById('co-vis').innerHTML = visHtml;
+  document.getElementById('co-resultado').classList.remove('hidden');
+}
+
+// ==== INICIALIZACION ====
+window.onload = function(){
+  var d = new Date();
+  var meses = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+  document.getElementById('hdate').textContent = d.getDate()+' '+meses[d.getMonth()]+' '+d.getFullYear();
+
+  cargarLocal();
+  wiz_renderColores();
+  wiz_renderDots();
+  tar_render();
+  hist_render();
+  co_render();
+  ht_cargarConfigGuardada();
+
+  var saved;
+  try{ saved = sessionStorage.getItem('portal'); }catch(e){}
+  if(saved){ entrar(saved); }
+
+  var attempts = 0;
+  var waitFb = setInterval(function(){
+    attempts++;
+    if(window.fbReady){
+      clearInterval(waitFb);
+      setTimeout(cargarNube, 400);
+    } else if(attempts > 30){
+      clearInterval(waitFb);
+    }
+  }, 500);
+};
+</script>
+</body>
+</html>
